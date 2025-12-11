@@ -293,14 +293,29 @@ func createTestRWSet(key, value string) []byte {
 
 func TestCircuitBreaker(t *testing.T) {
 	t.Run("Circuit Breaker State Transitions", func(t *testing.T) {
-		metrics := endorser.NewMetrics(&metricsfakes.Provider{})
+		// Create proper metrics with fake counters
+		fakeMetrics := &endorser.Metrics{
+			ProposalDuration:              &metricsfakes.Histogram{},
+			ProposalsReceived:             &metricsfakes.Counter{},
+			SuccessfulProposals:           &metricsfakes.Counter{},
+			ProposalValidationFailed:      &metricsfakes.Counter{},
+			ProposalACLCheckFailed:        &metricsfakes.Counter{},
+			InitFailed:                    &metricsfakes.Counter{},
+			EndorsementsFailed:            &metricsfakes.Counter{},
+			DuplicateTxsFailure:           &metricsfakes.Counter{},
+			SimulationFailure:             &metricsfakes.Counter{},
+			LeaderCircuitBreakerOpen:      &metricsfakes.Counter{},
+			LeaderCircuitBreakerClosed:    &metricsfakes.Counter{},
+			LeaderCircuitBreakerHalfOpen:  &metricsfakes.Counter{},
+		}
+		
 		config := endorser.CircuitBreakerConfig{
 			Threshold:     3,
 			Timeout:       100 * time.Millisecond,
 			MaxRetries:    2,
 			RetryInterval: 50 * time.Millisecond,
 		}
-		cb := endorser.NewCircuitBreaker(config, metrics)
+		cb := endorser.NewCircuitBreaker(config, fakeMetrics)
 
 		// Test initial state
 		assert.Equal(t, endorser.CircuitClosed, cb.GetState())

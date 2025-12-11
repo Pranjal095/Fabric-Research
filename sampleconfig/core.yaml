@@ -799,3 +799,20 @@ metrics:
 
         # prefix is prepended to all emitted statsd metrics
         prefix:
+
+sharding:
+  enabled: true
+  batchTimeout: 300ms
+  maxBatchSize: 20
+  prepareTimeout: 2000ms
+  contracts:
+    - name: "asset-transfer"
+      replicas:
+        - "peer0.org1:7051"
+        - "peer1.org1:7052"
+        - "peer2.org1:7053"
+    - name: "voting"
+      replicas:
+        - "peer0.org2:7051"
+        - "peer1.org2:7052"
+        - "peer2.org2:7053"

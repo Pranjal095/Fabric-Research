@@ -1,0 +1,26 @@
+sharding:
+  enabled: true
+  batchMaxSize: 20
+  batchTimeout: 300ms
+  prepareTimeout: 2000ms
+  expiryDuration: 5m
+  
+  # Define shards (one per contract)
+  contracts:
+    - name: "asset-transfer"
+      replicas:
+        - address: "peer0.org1.example.com:7051"
+          id: 1
+        - address: "peer1.org1.example.com:7052"
+          id: 2
+        - address: "peer2.org1.example.com:7053"
+          id: 3
+    
+    - name: "voting"
+      replicas:
+        - address: "peer0.org2.example.com:7051"
+          id: 1
+        - address: "peer1.org2.example.com:7052"
+          id: 2
+        - address: "peer2.org2.example.com:7053"
+          id: 3
