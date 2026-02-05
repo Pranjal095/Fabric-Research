@@ -77,6 +77,7 @@ type ShardLeader struct {
 	commitC         chan *PrepareProof
 	errorC          chan error
 	stopC           chan struct{}
+	messagesC       chan []raftpb.Message
 	requestsHandled int64
 	mu              sync.RWMutex
 }
@@ -115,6 +116,7 @@ func NewShardLeader(config ShardConfig, batchTimeout time.Duration, maxBatchSize
 		commitC:       make(chan *PrepareProof, 1000),
 		errorC:        make(chan error, 10),
 		stopC:         make(chan struct{}),
+		messagesC:     make(chan []raftpb.Message, 100),
 	}
 
 	go sl.runRaft()
@@ -138,6 +140,14 @@ func (sl *ShardLeader) runRaft() {
 				sl.storage.ApplySnapshot(rd.Snapshot)
 			}
 			sl.storage.Append(rd.Entries)
+
+			if len(rd.Messages) > 0 {
+				select {
+				case sl.messagesC <- rd.Messages:
+				case <-sl.stopC:
+					return
+				}
+			}
 
 			for _, entry := range rd.CommittedEntries {
 				if entry.Type == raftpb.EntryNormal && len(entry.Data) > 0 {
@@ -357,6 +367,16 @@ func (sl *ShardLeader) GetRequestsHandled() int64 {
 	sl.mu.RLock()
 	defer sl.mu.RUnlock()
 	return sl.requestsHandled
+}
+
+// MessagesC returns the channel for outgoing Raft messages
+func (sl *ShardLeader) MessagesC() <-chan []raftpb.Message {
+	return sl.messagesC
+}
+
+// Step advances the state machine using the given message
+func (sl *ShardLeader) Step(ctx context.Context, msg raftpb.Message) error {
+	return sl.node.Step(ctx, msg)
 }
 
 // Stop gracefully stops the shard leader
