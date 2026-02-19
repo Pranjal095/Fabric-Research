@@ -7,6 +7,8 @@ SPDX-License-Identifier: Apache-2.0
 package sharding
 
 import (
+	"encoding/json"
+	"os"
 	"sync"
 )
 
@@ -59,14 +61,41 @@ func (sm *ShardManager) GetOrCreateShard(contractName string) (*ShardLeader, err
 	sm.shardsLock.Lock()
 	defer sm.shardsLock.Unlock()
 
+	// Double check
 	if shard, exists := sm.shards[contractName]; exists {
 		return shard, nil
 	}
 
+	// Default config
 	config := ShardConfig{
 		ShardID:      contractName,
 		ReplicaNodes: []string{"localhost:7051", "localhost:7052", "localhost:7053"},
 		ReplicaID:    1,
+	}
+
+	// Try to load from configuration file
+	// We look for 'sharding.json' in the current directory or config path
+	// Structure: {"fabcar": ["100.x.x.2:7051", "100.x.x.2:8051", "100.x.x.2:9051"]}
+	if externalConfig, err := loadShardingConfig("sharding.json"); err == nil {
+		if replicas, ok := externalConfig[contractName]; ok {
+			config.ReplicaNodes = replicas
+			logger.Infof("Loaded configuration for shard %s: %v", contractName, replicas)
+
+			// Determine our ID based on CORE_PEER_ADDRESS
+			// If we are one of the replicas, we need a unique ID (index + 1)
+			myAddr := os.Getenv("CORE_PEER_ADDRESS")
+			if myAddr == "" {
+				// Fallback or just assume first if testing locally without env
+				myAddr = "localhost:7051"
+			}
+
+			for i, nodeAddr := range replicas {
+				if nodeAddr == myAddr {
+					config.ReplicaID = uint64(i + 1)
+					break
+				}
+			}
+		}
 	}
 
 	shard, err := NewShardLeader(config, DefaultBatchTimeout, DefaultBatchMaxSize)
@@ -75,8 +104,23 @@ func (sm *ShardManager) GetOrCreateShard(contractName string) (*ShardLeader, err
 	}
 
 	sm.shards[contractName] = shard
-	logger.Infof("Dynamically created shard for contract %s", contractName)
+	logger.Infof("Created shard for contract %s with ReplicaID %d", contractName, config.ReplicaID)
 	return shard, nil
+}
+
+// Helper to load config
+func loadShardingConfig(path string) (map[string][]string, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+
+	var config map[string][]string
+	if err := json.NewDecoder(file).Decode(&config); err != nil {
+		return nil, err
+	}
+	return config, nil
 }
 
 // Shutdown stops all shards
