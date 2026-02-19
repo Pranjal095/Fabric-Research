@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/golang/protobuf/proto"
 	"github.com/hyperledger/fabric-protos-go/common"
@@ -340,6 +341,12 @@ type PeerLedgerSupport interface {
 // chain information
 type LedgerCommitter struct {
 	PeerLedgerSupport
+	ConcurrencyLimit int
+}
+
+// SetConcurrencyLimit sets the maximum number of concurrent goroutines used for validation
+func (lc *LedgerCommitter) SetConcurrencyLimit(limit int) {
+	lc.ConcurrencyLimit = limit
 }
 
 // NewLedgerCommitter is a factory function to create an instance of the committer
@@ -415,6 +422,12 @@ func (lc *LedgerCommitter) processBlockWithDAG(blockAndPvtData *ledger.BlockAndP
 		var mutex sync.Mutex
 		txValidationResults := make(map[string]bool)
 
+		// Create a semaphore if ConcurrencyLimit is set > 0
+		var sem chan struct{}
+		if lc.ConcurrencyLimit > 0 {
+			sem = make(chan struct{}, lc.ConcurrencyLimit)
+		}
+
 		for _, txID := range txs {
 			// Check if dependencies are valid (if any)
 			if level > 0 {
@@ -441,9 +454,15 @@ func (lc *LedgerCommitter) processBlockWithDAG(blockAndPvtData *ledger.BlockAndP
 			}
 
 			// Process the transaction
+			if sem != nil {
+				sem <- struct{}{} // Acquire semaphore
+			}
 			wg.Add(1)
 			go func(id string) {
 				defer wg.Done()
+				if sem != nil {
+					defer func() { <-sem }() // Release semaphore
+				}
 
 				// Get the transaction index in the block
 				txIndex, exists := dag.GetIndexByTxID(id)
@@ -503,6 +522,11 @@ func (lc *LedgerCommitter) processBlockWithDAG(blockAndPvtData *ledger.BlockAndP
 						isValid = false
 						break
 					}
+				}
+
+				// Simulate VSCC (Signature Verification) if basic checks passed
+				if isValid {
+					simulateVSCC()
 				}
 
 				// Check for read/write set conflicts with dependencies
@@ -825,4 +849,9 @@ func extractRWSet(tx *peer.Transaction) (map[string]*rwset.NsReadWriteSet, error
 	}
 
 	return rwSets, nil
+}
+
+// simulateVSCC simulates the computational cost of verifying signatures
+func simulateVSCC() {
+	time.Sleep(500 * time.Microsecond)
 }
