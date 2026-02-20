@@ -273,7 +273,7 @@ func ParseDependencyInfo(responseMsg string) (bool, string, int64, error) {
 		return false, "", 0, nil
 	}
 
-	parts := strings.Split(responseMsg, ":")
+	parts := strings.Split(responseMsg, "DependencyInfo:")
 	if len(parts) < 2 {
 		return false, "", 0, errors.New("invalid dependency info format")
 	}
