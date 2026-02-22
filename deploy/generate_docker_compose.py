@@ -50,7 +50,7 @@ def generate_compose(num_peers, server_id, start_port=7051, couch_start_port=598
             "volumes": [
                 "/var/run/docker.sock:/host/var/run/docker.sock",
                 f"peer{global_peer_id}.org1.example.com:/var/hyperledger/production",
-                "../../build/bin/peer:/usr/local/bin/peer:ro", # Map the custom built binary
+                "../build/bin/peer:/usr/local/bin/peer:ro", # Map the custom built binary
                 "./sharding.json:/opt/gopath/src/github.com/hyperledger/fabric/peer/sharding.json:ro", # Map the cluster config
             ],
             "working_dir": "/opt/gopath/src/github.com/hyperledger/fabric/peer",

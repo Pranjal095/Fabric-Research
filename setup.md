@@ -48,7 +48,6 @@ We use the python generator script to avoid port conflicts and configure local C
 ```bash
 cd deploy/
 python3 generate_docker_compose.py --peers 3 --server 1
-# This generates docker-compose-server1.yaml
 docker-compose -f docker-compose-server1.yaml up -d
 ```
 
@@ -56,7 +55,6 @@ docker-compose -f docker-compose-server1.yaml up -d
 ```bash
 cd deploy/
 python3 generate_docker_compose.py --peers 4 --server 2
-# This generates docker-compose-server2.yaml
 docker-compose -f docker-compose-server2.yaml up -d
 ```
 
