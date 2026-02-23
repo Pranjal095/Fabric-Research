@@ -63,23 +63,23 @@ docker-compose -f docker-compose-server2.yaml up -d
 ### Step 3.4: Distributed Channel & Distinct Smart Contracts Setup
 To utilize proper sharding logic, you **must deploy distinct smart contracts** to represent different logical state partitions (Shards). The safest and most reliable way to execute these commands without local dependency/TLS issues is from *inside* one of the peer containers on the Server.
 
-**1. Enter the Peer Container (On Machine 1 - Server):**
+**1. Create the Channel on the Orderer (On Machine 1 - Server Host):**
+Since `ORDERER_GENERAL_BOOTSTRAPMETHOD=none`, the orderer has no system channel. Tell the Orderer (running at `192.168.50.54:7050`) to create `mychannel` using the `osnadmin` tool compiled directly on your host:
+```bash
+../build/bin/osnadmin channel join --channelID mychannel --config-block ./mychannel.block -o 127.0.0.1:7053
+```
+
+**2. Enter the Peer Container (On Machine 1 - Server):**
 SSH into Machine 1 and open an interactive shell inside Peer 0:
 ```bash
 docker exec -it peer0.org1.example.com bash
 ```
 
-**2. Set Base Environment Variables (Inside Container):**
+**3. Set Base Environment Variables (Inside Container):**
 Before running CLI commands, set the environment variables to use Org1's MSP:
 ```bash
 export CORE_PEER_LOCALMSPID="Org1MSP"
 export CORE_PEER_TLS_ENABLED=false
-```
-
-**3. Create the Channel:**
-Tell the Orderer (running at `192.168.50.54:7050`) to create `mychannel`:
-```bash
-osnadmin channel join --channelID mychannel --config-block ./mychannel.block -o 192.168.50.54:7050
 ```
 
 **4. Join the Server Peers (Machine 1) to the Channel:**

@@ -3,7 +3,7 @@ cd "$(dirname "$0")"
 
 echo "Building cryptogen and configtxgen..."
 cd ..
-make cryptogen configtxgen
+make cryptogen configtxgen osnadmin
 cd deploy
 
 echo "Cleaning up old crypto..."
