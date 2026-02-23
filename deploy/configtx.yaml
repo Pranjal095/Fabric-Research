@@ -58,7 +58,19 @@ Application: &ApplicationDefaults
       Type: ImplicitMeta
       Rule: "MAJORITY Endorsement"
   Capabilities:
-    <<: *ApplicationCapabilities
+Channel: &ChannelDefaults
+  Policies:
+    Readers:
+      Type: ImplicitMeta
+      Rule: "ANY Readers"
+    Writers:
+      Type: ImplicitMeta
+      Rule: "ANY Writers"
+    Admins:
+      Type: ImplicitMeta
+      Rule: "MAJORITY Admins"
+  Capabilities:
+    <<: *ChannelCapabilities
 
 Orderer: &OrdererDefaults
   OrdererType: etcdraft
@@ -91,8 +103,7 @@ Orderer: &OrdererDefaults
 
 Profiles:
   TwoOrgsApplicationGenesis:
-    Capabilities:
-      <<: *ChannelCapabilities
+    <<: *ChannelDefaults
     Orderer:
       <<: *OrdererDefaults
       Organizations:
