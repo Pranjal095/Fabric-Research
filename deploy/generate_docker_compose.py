@@ -11,7 +11,7 @@ def generate_compose(num_peers, server_id, start_port=7051, couch_start_port=598
         global_peer_id = (server_id - 1) * num_peers + i
         peer_name = f"peer{global_peer_id}.org1.example.com"
         couch_name = f"couchdb{global_peer_id}"
-        
+        peer_port = start_port + (i - 1) * 1000
         couch_port = couch_start_port + (i - 1) * 1000
         chaincode_port = peer_port + 1
         
