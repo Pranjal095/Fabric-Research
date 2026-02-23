@@ -8,8 +8,8 @@ Unlike previous versions that relied on in-process simulators or duplicate contr
 Since the machines (2 VMs, 1 Server) are in the same network, they can communicate with each other directly. No overlay network (like Tailscale) is required.
 
 **Roles:**
-*   **Machine 1 (Server):** Orderer + Peers 1-3. IP: `192.168.x.1`
-*   **Machine 2 (VM 1):** Peers 4-7. IP: `192.168.x.2`
+*   **Machine 1 (Server):** Orderer + Peers 0-2. IP: `192.168.x.1`
+*   **Machine 2 (VM 1):** Peers 3-6. IP: `192.168.x.2`
 *   **Machine 3 (VM 2):** Benchmark Client (Load Generator). IP: `192.168.x.3`
 
 ## 2. Prerequisites (All Machines)
@@ -46,14 +46,16 @@ To deploy multiple peers (with individual CouchDB instances) on a single physica
 
 **On Machine 1 (Server):**
 ```bash
-python3 deploy/generate_docker_compose.py --peers 3 --server 1
+cd deploy/
+python3 generate_docker_compose.py --peers 3 --start-peer 0 --server 1
 # This generates `docker-compose-server1.yaml` (Ports 7051, 8051, 9051)
 docker-compose -f docker-compose-server1.yaml up -d
 ```
 
 **On Machine 2 (VM 1):**
 ```bash
-python3 deploy/generate_docker_compose.py --peers 4 --server 2
+cd deploy/
+python3 generate_docker_compose.py --peers 4 --start-peer 3 --server 2
 # This generates `docker-compose-server2.yaml` (Ports 7051, 8051, 9051, 10051)
 docker-compose -f docker-compose-server2.yaml up -d
 ```
@@ -62,9 +64,9 @@ docker-compose -f docker-compose-server2.yaml up -d
 To utilize proper sharding logic, you **must deploy distinct smart contracts** to represent different logical state partitions (Shards). The safest and most reliable way to execute these commands without local dependency/TLS issues is from *inside* one of the peer containers on the Server.
 
 **1. Enter the Peer Container (On Machine 1 - Server):**
-SSH into Machine 1 and open an interactive shell inside Peer 1:
+SSH into Machine 1 and open an interactive shell inside Peer 0:
 ```bash
-docker exec -it peer1.org1.example.com bash
+docker exec -it peer0.org1.example.com bash
 ```
 
 **2. Set Base Environment Variables (Inside Container):**
@@ -82,53 +84,53 @@ osnadmin channel join --channelID mychannel --config-block ./mychannel.block -o 
 
 **4. Join the Server Peers (Machine 1) to the Channel:**
 ```bash
-# Join Peer 1
+# Join Peer 0
 export CORE_PEER_ADDRESS=192.168.50.54:7051
 peer channel join -b mychannel.block
 
-# Join Peer 2
+# Join Peer 1
 export CORE_PEER_ADDRESS=192.168.50.54:8051
 peer channel join -b mychannel.block
 
-# Join Peer 3
+# Join Peer 2
 export CORE_PEER_ADDRESS=192.168.50.54:9051
 peer channel join -b mychannel.block
 ```
 
 **5. Join the VM 1 Peers (Machine 2) to the Channel:**
 ```bash
-# Join Peer 4
+# Join Peer 3
 export CORE_PEER_ADDRESS=10.96.1.87:7051
 peer channel join -b mychannel.block
 
-# Join Peer 5
+# Join Peer 4
 export CORE_PEER_ADDRESS=10.96.1.87:8051
 peer channel join -b mychannel.block
 
-# Join Peer 6
+# Join Peer 5
 export CORE_PEER_ADDRESS=10.96.1.87:9051
 peer channel join -b mychannel.block
 
-# Join Peer 7
+# Join Peer 6
 export CORE_PEER_ADDRESS=10.96.1.87:10051
 peer channel join -b mychannel.block
 ```
 
 **6. Package and Deploy Chaincodes to the Server (Machine 1):**
 ```bash
-# Shard 0: Fabcar (Peer 1)
+# Shard 0: Fabcar (Peer 0)
 peer lifecycle chaincode package fabcar.tar.gz --path /opt/gopath/src/github.com/hyperledger/fabric-samples/chaincode/fabcar/go/ --lang golang --label fabcar_1.0
 export CORE_PEER_ADDRESS=192.168.50.54:7051
 peer lifecycle chaincode install fabcar.tar.gz
 peer chaincode deploy -n fabcar -p /opt/gopath/src/github.com/hyperledger/fabric-samples/chaincode/fabcar/go -c '{"Args":[]}' -o 192.168.50.54:7050
 
-# Shard 1: Marbles (Peer 2)
+# Shard 1: Marbles (Peer 1)
 peer lifecycle chaincode package marbles.tar.gz --path /opt/gopath/src/github.com/hyperledger/fabric-samples/chaincode/marbles02/go/ --lang golang --label marbles_1.0
 export CORE_PEER_ADDRESS=192.168.50.54:8051
 peer lifecycle chaincode install marbles.tar.gz
 peer chaincode deploy -n marbles -p /opt/gopath/src/github.com/hyperledger/fabric-samples/chaincode/marbles02/go -c '{"Args":[]}' -o 192.168.50.54:7050
 
-# Shard 2: Smallbank (Peer 3)
+# Shard 2: Smallbank (Peer 2)
 peer lifecycle chaincode package smallbank.tar.gz --path /opt/gopath/src/github.com/hyperledger/fabric-samples/chaincode/smallbank/go/ --lang golang --label smallbank_1.0
 export CORE_PEER_ADDRESS=192.168.50.54:9051
 peer lifecycle chaincode install smallbank.tar.gz
@@ -137,25 +139,25 @@ peer chaincode deploy -n smallbank -p /opt/gopath/src/github.com/hyperledger/fab
 
 **7. Package and Deploy Chaincodes to VM 1 (Machine 2):**
 ```bash
-# Shard 3: Asset Transfer (Peer 4)
+# Shard 3: Asset Transfer (Peer 3)
 peer lifecycle chaincode package asset.tar.gz --path /opt/gopath/src/github.com/hyperledger/fabric-samples/chaincode/asset-transfer-basic/go/ --lang golang --label asset_1.0
 export CORE_PEER_ADDRESS=10.96.1.87:7051
 peer lifecycle chaincode install asset.tar.gz
 peer chaincode deploy -n asset-transfer-basic -p /opt/gopath/src/github.com/hyperledger/fabric-samples/chaincode/asset-transfer-basic/go -c '{"Args":[]}' -o 192.168.50.54:7050
 
-# Shard 4: Token ERC20 (Peer 5)
+# Shard 4: Token ERC20 (Peer 4)
 peer lifecycle chaincode package token.tar.gz --path /opt/gopath/src/github.com/hyperledger/fabric-samples/chaincode/token-erc20/go/ --lang golang --label token_1.0
 export CORE_PEER_ADDRESS=10.96.1.87:8051
 peer lifecycle chaincode install token.tar.gz
 peer chaincode deploy -n token-erc20 -p /opt/gopath/src/github.com/hyperledger/fabric-samples/chaincode/token-erc20/go -c '{"Args":[]}' -o 192.168.50.54:7050
 
-# Shard 5: Commercial Paper (Peer 6)
+# Shard 5: Commercial Paper (Peer 5)
 peer lifecycle chaincode package paper.tar.gz --path /opt/gopath/src/github.com/hyperledger/fabric-samples/chaincode/commercial-paper/go/ --lang golang --label paper_1.0
 export CORE_PEER_ADDRESS=10.96.1.87:9051
 peer lifecycle chaincode install paper.tar.gz
 peer chaincode deploy -n commercial-paper -p /opt/gopath/src/github.com/hyperledger/fabric-samples/chaincode/commercial-paper/go -c '{"Args":[]}' -o 192.168.50.54:7050
 
-# Shard 6: Auction (Peer 7)
+# Shard 6: Auction (Peer 6)
 peer lifecycle chaincode package auction.tar.gz --path /opt/gopath/src/github.com/hyperledger/fabric-samples/chaincode/auction/go/ --lang golang --label auction_1.0
 export CORE_PEER_ADDRESS=10.96.1.87:10051
 peer lifecycle chaincode install auction.tar.gz

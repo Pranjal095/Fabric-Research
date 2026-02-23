@@ -3,20 +3,20 @@ import argparse
 import yaml
 import os
 
-def generate_compose(num_peers, server_id, start_port=7051, couch_start_port=5984):
+def generate_compose(num_peers, server_id, start_peer=0, start_port=7051, couch_start_port=5984):
     services = {}
     volumes = {}
     
-    for i in range(1, num_peers + 1):
-        global_peer_id = (server_id - 1) * num_peers + i
+    for i in range(num_peers):
+        global_peer_id = start_peer + i
         peer_name = f"peer{global_peer_id}.org1.example.com"
         couch_name = f"couchdb{global_peer_id}"
-        peer_port = start_port + (i - 1) * 1000
-        couch_port = couch_start_port + (i - 1) * 1000
+        peer_port = start_port + i * 1000
+        couch_port = couch_start_port + i * 1000
         chaincode_port = peer_port + 1
         
         # Add Orderer on Server 1
-        if server_id == 1 and i == 1:
+        if server_id == 1 and i == 0:
             services["orderer.example.com"] = {
                 "container_name": "orderer.example.com",
                 "image": "hyperledger/fabric-orderer:latest",
@@ -70,11 +70,12 @@ def generate_compose(num_peers, server_id, start_port=7051, couch_start_port=598
                 f"CORE_PEER_ADDRESS={peer_name}:{peer_port}",
                 f"CORE_PEER_LISTENADDRESS=0.0.0.0:{peer_port}",
                 f"CORE_PEER_CHAINCODELISTENADDRESS=0.0.0.0:{chaincode_port}",
-                "CORE_PEER_GOSSIP_BOOTSTRAP=peer1.org1.example.com:7051",
+                "CORE_PEER_GOSSIP_BOOTSTRAP=peer0.org1.example.com:7051",
                 f"CORE_PEER_GOSSIP_EXTERNALENDPOINT={peer_name}:{peer_port}",
                 "CORE_PEER_LOCALMSPID=Org1MSP",
                 "CORE_LEDGER_STATE_STATEDATABASE=CouchDB",
                 f"CORE_LEDGER_STATE_COUCHDBCONFIG_COUCHDBADDRESS={couch_name}:5984",
+                "CORE_LEDGER_STATE_COUCHDBCONFIG_USERNAME=admin",
                 "CORE_LEDGER_STATE_COUCHDBCONFIG_PASSWORD=adminpw",
                 "EXPERIMENTAL_SHARDING_ENABLED=true",
                 "CORE_PEER_TLS_ENABLED=false",
@@ -120,6 +121,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Generate Docker Compose for Fabric Peers")
     parser.add_argument("--peers", type=int, default=3, help="Number of peers to generate")
     parser.add_argument("--server", type=int, default=1, help="Server ID (1, 2, or 3)")
+    parser.add_argument("--start-peer", type=int, default=0, help="Starting global peer ID index")
     args = parser.parse_args()
     
-    generate_compose(args.peers, args.server)
+    generate_compose(args.peers, args.server, args.start_peer)
