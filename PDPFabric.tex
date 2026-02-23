@@ -1,0 +1,86 @@
+\documentclass[conference]{IEEEtran}
+% \IEEEoverridecommandlockouts
+% The preceding line is only needed to identify funding in the first footnote. If that is unneeded, please comment it out.
+
+\usepackage{graphicx}
+\usepackage{amsmath}
+\usepackage{multirow}
+\usepackage{listings}
+\usepackage{xcolor}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{pgfplots}
+\pgfplotsset{compat=1.18}
+\usepackage{caption}
+\usepackage{subcaption}
+\usepackage{tikz}
+\usetikzlibrary{arrows.meta, positioning}
+\usepackage{pgf-umlsd}
+\usepackage{todonotes}
+\usepackage{hyperref}
+
+\usepackage{xspace}
+
+\usepackage{tikz}
+\usepackage{pgfplots}
+\usepackage{subcaption}
+\pgfplotsset{compat=1.18}
+\input{macros}
+
+\begin{document}
+
+\title{Dependency-Aware Execution Mechanism in Hyperledger Fabric Architecture}
+\author{Anonymous Authors}
+
+\maketitle
+
+\begin{abstract}
+\label{sec:abs}
+Hyperledger Fabric is a leading permissioned blockchain framework for enterprise use, known for its modular design and privacy features. While it strongly supports configurable consensus and access control, Fabric can face challenges in achieving high transaction throughput and low rejection rates under heavy workloads. These performance limitations are often attributed to endorsement, ordering, and validation bottlenecks. 
+
+To address these challenges, we propose a dependency-aware execution model for Hyperledger Fabric. Our approach includes: (a) a dependency flagging system during endorsement, marking transactions as independent or dependent using a hashmap; (b) an optimized block construction in the ordering service that prioritizes independent transactions; (c) the incorporation of a Directed Acyclic Graph (DAG) within each block to represent dependencies; and (d) parallel execution of independent transactions at the committer, with dependent transactions processed according to DAG order.
+
+Incorporated in Hyperledger Fabric v2.5, our framework~\footnote{Code can be anonymously accessed: \href{https://anonymous.4open.science/r/DepAwareFabric-PDP/README.md}{Link}} was tested on workloads with varying dependency levels and system loads. Results show up to 40\% higher throughput and significantly reduced rejection rates in high-contention scenarios. This demonstrates that dependency-aware scheduling and DAG-based execution can substantially enhance Fabric’s scalability while remaining compatible with its existing consensus and smart contract layers.
+\end{abstract}
+
+\section{Introduction}
+\label{sec:intro}
+\input{intro}
+
+\section{Problem Statement and Contributions}
+\label{sec:problem}
+\input{pblm}
+
+\section{Proposed Solution}
+\label{sec:proposed}
+\input{soln}
+
+\subsection{Proposed Architecture}
+\label{sec:psa}
+\input{sys_arch}
+
+% \section{Test Environment Setup}
+% \label{sec:test}
+% \input{setup}
+
+\section{Performance Analysis}
+\label{sec:perf}
+\input{setup}
+\label{sec:test}
+\input{perf}
+
+\section{Conclusion and Future Work}
+\label{sec:conc}
+\input{conc}
+
+
+\bibliographystyle{splncs04}
+\bibliography{citation_long}
+
+\newpage
+\appendix
+\section{Appendix}
+
+\input{append}
+
+\end{document}

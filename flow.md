@@ -1,57 +1,62 @@
-# Hyperledger Fabric Endorser - Complete Analysis
+# Hyperledger Fabric Execution Pipeline - Complete Analysis
 
 ## 📊 FOLDER STRUCTURE OVERVIEW
 
 ```
-core/endorser/
-├── Core Implementation (9 files)
-│   ├── endorser.go                    # Main endorser logic & entry point
-│   ├── circuit_breaker.go             # Fault tolerance pattern
-│   ├── health_check.go                # Health monitoring
-│   ├── transaction_processor.go       # Transaction processing logic
-│   ├── chaincode.go                   # Chaincode execution wrapper
-│   ├── utils.go                       # Helper functions
-│   ├── metadata.go                    # Metadata parsing
-│   ├── metrics.go                     # Prometheus metrics
-│   └── state.go                       # State management
+core/
+├── endorser/
+│   ├── Core Implementation (9 files)
+│   │   ├── endorser.go                # Main endorser logic & entry point
+│   │   ├── circuit_breaker.go         # Fault tolerance pattern
+│   │   ├── health_check.go            # Health monitoring
+│   │   ├── transaction_processor.go   # Transaction processing logic
+│   │   ├── chaincode.go               # Chaincode execution wrapper
+│   │   ├── utils.go                   # Helper functions
+│   │   ├── metadata.go                # Metadata parsing
+│   │   ├── metrics.go                 # Prometheus metrics
+│   │   └── state.go                   # State management
+│   │
+│   ├── Message Validation (2 files)
+│   │   ├── msgvalidation.go           # Proposal validation
+│   │   └── msgvalidation_test.go
+│   │
+│   ├── Plugin System (2 files)
+│   │   ├── plugin_endorser.go         # Plugin-based endorsement
+│   │   └── plugin_endorser_test.go
+│   │
+│   ├── Private Data (2 files)
+│   │   ├── pvtrwset_assembler.go      # Private data assembly
+│   │   └── pvtrwset_assembler_test.go
+│   │
+│   ├── Support Interfaces (1 file)
+│   │   └── support.go                 # Interfaces for dependencies
+│   │
+│   ├── Sharding Package (8 files)
+│   │   └── sharding/
+│   │       ├── shard_manager.go       # Manages contract shards
+│   │       ├── shard_leader.go        # Raft-based shard consensus
+│   │       ├── types.go               # Common types
+│   │       ├── transport_grpc.go      # gRPC transport
+│   │       ├── experiments_test.go    # Performance tests
+│   │       ├── shard_leader_test.go   # Logic for tests
+│   │       ├── shard_manager_test.go  # Logic for tests
+│   │       └── protos/
+│   │           ├── shard.proto        # Protocol buffer definitions
+│   │           ├── shard.pb.go        # Generated code
+│   │           └── shard_grpc.pb.go   # Generated gRPC code
+│   │
+│   ├── Test Mocks (13 files)
+│   │   ├── mocks/                     # Counterfeiter-generated mocks
+│   │   └── fake/                      # Hand-written test fakes
+│   │
+│   └── Test Files (5 files)
+│       ├── endorser_suite_test.go     # Ginkgo test suite
+│       ├── endorser_test.go           # Main endorser tests
+│       └── metrics_test.go            # Metrics tests
 │
-├── Message Validation (2 files)
-│   ├── msgvalidation.go               # Proposal validation
-│   └── msgvalidation_test.go
-│
-├── Plugin System (2 files)
-│   ├── plugin_endorser.go             # Plugin-based endorsement
-│   └── plugin_endorser_test.go
-│
-├── Private Data (2 files)
-│   ├── pvtrwset_assembler.go          # Private data assembly
-│   └── pvtrwset_assembler_test.go
-│
-├── Support Interfaces (1 file)
-│   └── support.go                     # Interfaces for dependencies
-│
-├── Sharding Package (8 files)
-│   └── sharding/
-│       ├── shard_manager.go           # Manages contract shards
-│       ├── shard_leader.go            # Raft-based shard consensus
-│       ├── types.go                   # Common types
-│       ├── transport_grpc.go          # gRPC transport
-│       ├── experiments_test.go        # Performance tests
-│       ├── shard_leader_test.go
-│       ├── shard_manager_test.go
-│       └── protos/
-│           ├── shard.proto            # Protocol buffer definitions
-│           ├── shard.pb.go            # Generated code
-│           └── shard_grpc.pb.go       # Generated gRPC code
-│
-├── Test Mocks (13 files)
-│   ├── mocks/                         # Counterfeiter-generated mocks
-│   └── fake/                          # Hand-written test fakes
-│
-└── Test Files (5 files)
-    ├── endorser_suite_test.go         # Ginkgo test suite
-    ├── endorser_test.go               # Main endorser tests
-    └── metrics_test.go                # Metrics tests
+└── committer/ (NEW)
+    ├── committer_impl.go              # Committer with DAG parallelism
+    └── benchmark_test.go              # Committer benchmark tests
 ```
 
 ---
@@ -176,6 +181,28 @@ func (e *Endorser) ProcessProposal(ctx context.Context, signedProp *pb.SignedPro
 │  - Simulation results                                            │
 │  - Dependency info                                               │
 │  - Chaincode events                                              │
+└────────────────────────────┬────────────────────────────────────┘
+                             │
+                             ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                    Orderer & Broadcast                           │
+│  - Transactions sequenced into blocks                            │
+└────────────────────────────┬────────────────────────────────────┘
+                             │
+                             ▼
+┌─────────────────────────────────────────────────────────────────┐
+│              Committer: BuildDAGFromBlock (NEW)                  │
+│  - Extract dependency metadata from each transaction             │
+│  - Create TransactionDAG & calculate depth levels                │
+│  (core/committer/committer_impl.go)                              │
+└────────────────────────────┬────────────────────────────────────┘
+                             │
+                             ▼
+┌─────────────────────────────────────────────────────────────────┐
+│              Committer: processBlockWithDAG (NEW)                │
+│  - Level 0 (Independent): Execute validation in parallel         │
+│  - Level N (Dependent): Execute sequentially based on parents    │
+│  - Update validation codes & commit to ledger                    │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
@@ -487,6 +514,28 @@ func (e *Endorser) performHealthCheck() {
 
 ---
 
+### **F. Committer DAG (committer_impl.go)**
+
+**Purpose:** Parallelize block validation by analyzing dependencies and executing independent transactions concurrently.
+
+**Key Structures:**
+```go
+type TransactionDAG struct {
+    Nodes             map[string]*TransactionDependency
+    Dependencies      map[string][]string
+    Levels            map[string]int     // DAG Level for parallel processing
+    ValidationResults map[string]bool
+    TxIndices         map[string]int
+}
+```
+
+**Key Operations:**
+1.  **`BuildDAGFromBlock`**: Iterates through all transactions in a newly received block, extracts the `DependencyInfo` from the chaincode response, and assigns transactions to `Levels`. Level 0 transactions have no dependencies.
+2.  **`CalculateLevels`**: Computes the topological depth of each transaction. If Tx B depends on Tx A, Tx B's level is Tx A's level + 1.
+3.  **`processBlockWithDAG`**: Executes transactions level-by-level using Go `sync.WaitGroup`. All transactions at the same level execute concurrently. Transactions verify that their dependent parent validations were successful before proceeding.
+
+---
+
 ## 🔄 COMPLETE REQUEST FLOW EXAMPLE
 
 ### **Scenario: Client invokes "transfer" on "fabcar" chaincode**
@@ -596,9 +645,21 @@ Step 22: Client collects endorsements from multiple peers
     ↓
 Step 23: Client sends transaction to orderer
     ↓
-Step 24: Orderer creates block
+Step 24: Orderer creates block and broadcasts to committers
     ↓
-Step 25: Committer validates and commits
+Step 25: Committer receives block
+    ↓
+Step 26: BuildDAGFromBlock()
+    - Parses "DependencyInfo:HasDependency=true,DependentTxID=xyz789"
+    - Assigns independent Tx to Level 0
+    - Assigns dependent Tx to higher levels
+    ↓
+Step 27: processBlockWithDAG()
+    - Executes Level 0 transactions in parallel thread pool
+    - Validates signature and RWSet conflicts
+    - Executes Level N transactions after parents
+    ↓
+Step 28: Commit validated block to ledger
 ```
 
 ---
@@ -796,17 +857,17 @@ fabric_endorser_circuit_breaker_half_open_total
 
 ## 🎓 SUMMARY
 
-The Hyperledger Fabric endorser has been enhanced with:
+The Hyperledger Fabric execution pipeline has been fundamentally enhanced with:
 
-✅ **Sharded Architecture** - Contract-based sharding for scalability  
-✅ **Raft Consensus** - Fault-tolerant dependency tracking  
-✅ **Circuit Breaker** - Resilience against leader failures  
-✅ **Batch Processing** - Efficient Raft utilization  
-✅ **Health Monitoring** - Proactive failure detection  
+✅ **Sharded Endorsers** - Contract-based Raft sharding to horizontally scale proposal simulation  
+✅ **Dynamic Dependency Tracking** - In-memory maps capture cross-transaction conflicts early  
+✅ **DAG Committer** - Turns strictly sequential validation into parallelized verification using a Directed Acyclic Graph  
+✅ **Circuit Breakers & Health Checks** - Resilience against distributed node failures  
+✅ **Batch Processing** - Efficient Raft utilization for max throughput  
 ✅ **Comprehensive Metrics** - Observability for operations  
-✅ **Backward Compatible** - No breaking changes  
+✅ **Backward Compatible** - No breaking changes to client APIs or Chaincode  
 
-This transforms Fabric's endorsement from a stateless operation to a **stateful, scalable, fault-tolerant dependency tracking system** while preserving the original architecture's strengths.
+This transforms Fabric's architecture from a single-lane sequential bottleneck into a **stateful, massive-scale parallel dependency tracking system** while preserving the original network's trust and consensus guarantees.
 ---
 
 ## 📜 LOGGING & DIAGNOSTICS

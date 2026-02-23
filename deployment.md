@@ -1,21 +1,16 @@
 # Real-World Deployment & Evaluation Guide (3-Machine Setup)
 
-This guide details how to deploy your custom Dependency-Aware Hyperledger Fabric build across three physical machines (2 Laptops, 1 Server on different subnets) to run the exact performance benchmarks required for the evaluation.
+This guide details how to deploy your custom Dependency-Aware Hyperledger Fabric build across three machines (2 VMs, 1 Server) in the same network to run the exact performance benchmarks required for the evaluation.
 
 Unlike previous versions that relied on in-process simulators or duplicate contract names, this architecture uses **Docker Compose**, real **CouchDB** instances, and **distinct Smart Contracts** to emulate true sharding and Raft consensus.
 
 ## 1. Network Architecture & Connectivity
-Since the machines are on different subnets (and likely behind NAT), direct communication requires an Overlay Network.
-
-### Recommended Setup: **Tailscale / WireGuard**
-1.  **Install Tailscale** on all 3 machines (`curl -fsSL https://tailscale.com/install.sh | sh`).
-2.  **Authenticate** and ensure they appear in the same tailnet.
-3.  **Use Tailscale IPs**: Use the `100.x.y.z` IP addresses assigned by Tailscale for all Fabric configurations. This flattens the network and bypasses NAT/Subnet issues.
+Since the machines (2 VMs, 1 Server) are in the same network, they can communicate with each other directly. No overlay network (like Tailscale) is required.
 
 **Roles:**
-*   **Machine 1 (Server):** Orderer + Peers 1-3. IP: `100.x.x.1`
-*   **Machine 2 (Laptop A):** Peers 4-7. IP: `100.x.x.2`
-*   **Machine 3 (Laptop B):** Benchmark Client (Load Generator). IP: `100.x.x.3`
+*   **Machine 1 (Server):** Orderer + Peers 1-3. IP: `192.168.x.1`
+*   **Machine 2 (VM 1):** Peers 4-7. IP: `192.168.x.2`
+*   **Machine 3 (VM 2):** Benchmark Client (Load Generator). IP: `192.168.x.3`
 
 ## 2. Prerequisites (All Machines)
 1.  **OS:** Linux (Ubuntu 20.04+ recommended)
@@ -45,7 +40,7 @@ python3 deploy/generate_docker_compose.py --peers 3 --server 1
 docker-compose -f docker-compose-server1.yaml up -d
 ```
 
-**On Machine 2 (Laptop A):**
+**On Machine 2 (VM 1):**
 ```bash
 python3 deploy/generate_docker_compose.py --peers 4 --server 2
 # This generates `docker-compose-server2.yaml` (Ports 7051, 8051, 9051, 10051)
@@ -53,18 +48,42 @@ docker-compose -f docker-compose-server2.yaml up -d
 ```
 
 ### Step 3.3: Distributed Channel & Distinct Smart Contracts Setup
-To utilize proper sharding logic, you **must deploy distinct smart contracts** to represent different logical state partitions (Shards). **Do not deploy the same contract under different names.**
+To utilize proper sharding logic, you **must deploy distinct smart contracts** to represent different logical state partitions (Shards).
 
-From **Machine 3 (Client)**, run the standard CLI commands to create the channel against `100.x.x.1:7050` and join all 7 peers. 
+From **Machine 3 (Client - 10.96.0.221)**, use the standard Fabric CLI to create the channel and join all 7 peers across the Server and VM1.
 
-Then, deploy the following 7 standard samples as distinct chaincodes:
-1.  `fabcar` (Shard 0)
-2.  `marbles` (Shard 1)
-3.  `smallbank` (Shard 2)
-4.  `asset-transfer-basic` (Shard 3)
-5.  `token-erc20` (Shard 4)
-6.  `commercial-paper` (Shard 5)
-7.  `auction` (Shard 6)
+**1. Create the Channel (Connecting to Server's Orderer):**
+```bash
+osnadmin channel join --channelID mychannel --config-block ./mychannel.block -o 192.168.50.54:7050
+```
+
+**2. Join Peers to the Channel:**
+```bash
+# Join Server Peers (192.168.50.54)
+peer channel join -b mychannel.block -o 192.168.50.54:7050 --peerAddress 192.168.50.54:7051
+peer channel join -b mychannel.block -o 192.168.50.54:7050 --peerAddress 192.168.50.54:8051
+peer channel join -b mychannel.block -o 192.168.50.54:7050 --peerAddress 192.168.50.54:9051
+
+# Join VM1 Peers (10.96.1.87)
+peer channel join -b mychannel.block -o 192.168.50.54:7050 --peerAddress 10.96.1.87:7051
+peer channel join -b mychannel.block -o 192.168.50.54:7050 --peerAddress 10.96.1.87:8051
+peer channel join -b mychannel.block -o 192.168.50.54:7050 --peerAddress 10.96.1.87:9051
+peer channel join -b mychannel.block -o 192.168.50.54:7050 --peerAddress 10.96.1.87:10051
+```
+
+**3. Deploy the 7 standard samples as distinct chaincodes:**
+```bash
+# Deploy to Server (192.168.50.54)
+peer chaincode deploy -n fabcar -p /opt/gopath/src/github.com/hyperledger/fabric-samples/chaincode/fabcar/go -c '{"Args":[]}' -o 192.168.50.54:7050 --peerAddress 192.168.50.54:7051
+peer chaincode deploy -n marbles -p /opt/gopath/src/github.com/hyperledger/fabric-samples/chaincode/marbles02/go -c '{"Args":[]}' -o 192.168.50.54:7050 --peerAddress 192.168.50.54:8051
+peer chaincode deploy -n smallbank -p /opt/gopath/src/github.com/hyperledger/fabric-samples/chaincode/smallbank/go -c '{"Args":[]}' -o 192.168.50.54:7050 --peerAddress 192.168.50.54:9051
+
+# Deploy to VM1 (10.96.1.87)
+peer chaincode deploy -n asset-transfer-basic -p /opt/gopath/src/github.com/hyperledger/fabric-samples/chaincode/asset-transfer-basic/go -c '{"Args":[]}' -o 192.168.50.54:7050 --peerAddress 10.96.1.87:7051
+peer chaincode deploy -n token-erc20 -p /opt/gopath/src/github.com/hyperledger/fabric-samples/chaincode/token-erc20/go -c '{"Args":[]}' -o 192.168.50.54:7050 --peerAddress 10.96.1.87:8051
+peer chaincode deploy -n commercial-paper -p /opt/gopath/src/github.com/hyperledger/fabric-samples/chaincode/commercial-paper/go -c '{"Args":[]}' -o 192.168.50.54:7050 --peerAddress 10.96.1.87:9051
+peer chaincode deploy -n auction -p /opt/gopath/src/github.com/hyperledger/fabric-samples/chaincode/auction/go -c '{"Args":[]}' -o 192.168.50.54:7050 --peerAddress 10.96.1.87:10051
+```
 
 ### Step 3.4: Configuring Shard Sizes
 To alter the cluster size for specific experiments (e.g., a cluster of 3 vs 5), edit the `sharding.json` topology map located in the peer's filesystem path before starting the benchmarks. The peers will hot-reload the Raft configurations.

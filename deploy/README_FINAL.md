@@ -1,13 +1,13 @@
 # Final Distributed Experiment Guide
 
-This guide explains how to deploy and run the Sharded Raft Experiment on 3 machines (e.g., 2 Laptops + 1 Server).
+This guide explains how to deploy and run the Sharded Raft Experiment on 3 machines (e.g., 2 VMs + 1 Server).
 
 > [!IMPORTANT]
 > **Network Connectivity Requirement**  
 > Before starting, ensure all 3 machines can reach each other.  
 > Run `ping <Machine_IP>` from each machine to the others.  
 > If you see `Time to live exceeded` or `Destination Host Unreachable`, **you cannot proceed**.  
-> **Solution:** Connect all devices to the same Wi-Fi network or Mobile Hotspot. 
+> **Solution:** Ensure the VMs and the Server are connected to the same local network and can communicate directly without firewalls. 
 
 ## 1. Prerequisites
 - **Go 1.19+** on all machines.

@@ -1,0 +1,959 @@
+          Dependency-Aware Execution Mechanism in
+               Hyperledger Fabric Architecture
+                                                        Anonymous Authors
+
+
+   Abstract— Hyperledger Fabric is a leading permissioned
+blockchain framework for enterprise use, known for its modular
+design and privacy features. While it strongly supports config-
+urable consensus and access control, Fabric can face challenges
+in achieving high transaction throughput and low rejection rates
+under heavy workloads. These performance limitations are often
+attributed to endorsement, ordering, and validation bottlenecks.
+   To address these challenges, we propose a dependency-aware
+execution model for Hyperledger Fabric. Our approach includes:
+(a) a dependency flagging system during endorsement, marking
+transactions as independent or dependent using a hashmap; (b)
+an optimized block construction in the ordering service that
+prioritizes independent transactions; (c) the incorporation of a
+Directed Acyclic Graph (DAG) within each block to represent              Fig. 1: Fabric transaction flow by Androulaki et.al [1]
+dependencies; and (d) parallel execution of independent trans-
+actions at the committer, with dependent transactions processed
+according to DAG order.                                               ordering service broadcasts the new block to all relevant peers,
+   Incorporated in Hyperledger Fabric v2.5, our framework 1           including both endorsers and committers (Step 4). Finally,
+was tested on workloads with varying dependency levels and            each committer peer validates the transactions in the block,
+system loads. Results show up to 40% higher throughput and
+                                                                      checking endorsement policies and for conflicts, and commits
+significantly reduced rejection rates in high-contention scenarios.
+This demonstrates that dependency-aware scheduling and DAG-           valid transactions to the ledger (Step 5).
+based execution can substantially enhance Fabric’s scalability           While this architecture performs well in low-contention
+while remaining compatible with its existing consensus and smart      environments, it exhibits significant limitations under high
+contract layers.                                                      transaction volume. A key bottleneck is the lack of early
+                                                                      dependency detection and parallelism during the commit
+                        I. I NTRODUCTION
+                                                                      phase. Fabric employs an optimistic concurrency model with
+   Hyperledger Fabric is a permissioned blockchain platform           versioning, where all transactions are allowed to proceed
+widely used in enterprise applications [1]. Its modular de-           until final validation. Conflicts are detected only during the
+sign, with pluggable consensus and privacy features, enables          commit stage, based on world-state version checks. As a
+industrial-grade flexibility. Fabric operates via a three-phase       result, conflicting transactions are often rejected later in the
+transaction pipeline: endorsement, ordering, and validation.          commit stage, leading to increased retries and wasted compute
+Clients submit proposals to endorsers, who simulate transac-          resources.
+tions and return read-write sets. The ordering service collects          For example, consider 100 transactions that want to reduce
+these into blocks and broadcasts them to committing peers,            the same asset by a value of 100. Suppose the initial value
+who validate and apply them. Depending on its configuration,          of the asset of also 100. In such a scenario, only the first
+a peer node in the network can perform one or more of these           transaction commits successfully and updates the state to zero,
+roles: endorser, orderer, or committer.                               while the remaining 99 are rejected due to stale versioning.
+Hyperledger Fabric Architecture: The transaction flow in              Despite being endorsed and ordered, these transactions fail at
+Hyperledger Fabric, as illustrated in Fig. 1, begins when             the commit stage (Step 5), resulting in unnecessary latency
+the client (Step 1) sends a transaction proposal to one or            and reduced throughput. In this paper, we wish to address this
+more endorser peers. Each endorser peer then simulates                shortcoming.
+the transaction by executing the specified chaincode (smart              Another constraint is Fabric’s strictly sequential commit
+contract code, Step 2), generating a read/write set and an            logic, which executes all transactions in a block one after
+endorsement signature. The endorser returns this endorsement          another—even if many are independent. This underutilizes
+to the client (Step 3), and the client collects enough endorse-       multicore systems and limits concurrency, making Fabric
+ments as required by the policy. The client then submits the          inefficient in high-dependency workloads.
+endorsed transaction to the ordering service (Step 4), which
+                                                                           II. P ROBLEM S TATEMENT AND C ONTRIBUTIONS
+sequences transactions and packages them into blocks. The
+                                                                         Hyperledger Fabric follows an execute-order-validate model
+  1 Code can be anonymously accessed: Link                            [1] for processing transactions. Clients submit proposals that
+are simulated by endorsing peers. The results are passed              performance if not handled carefully.
+to the ordering service, which sequences them into blocks.               Another major bottleneck is the strictly sequential commit
+These blocks are then validated and committed by peers based          logic. All transactions within a block are processed one after
+on endorsement policies and version control. Although this            another, even if many are independent and could be executed
+pipeline is designed to decouple execution from ordering,             concurrently. This prevents Fabric from leveraging multi-core
+it does not utilize parallelism effectively, especially at the        architectures or exploiting transaction-level parallelism. The
+commit stage.                                                         system lacks any mechanism to distinguish between indepen-
+    The order-execute-validate model is the traditional transac-      dent and dependent transactions during execution.
+tion processing paradigm adopted by early blockchains such               These limitations result in two main issues:
+as Bitcoin and Ethereum. In this approach, transactions are              1) High rejection rates under contention: As shared state
+first collected and ordered into blocks through a consensus                  access increases, the likelihood of invalid transactions
+protocol. Once ordered, every node in the network sequentially               grows, leading to frequent rejections at the commit stage.
+executes all transactions in the agreed order, updating their            2) Under-utilization of system resources: Independent
+local copy of the ledger state. Finally, nodes validate the results          transactions are serialized unnecessarily, limiting con-
+to ensure consistency across the network.                                    currency and throughput.
+    The execute-order-validate model, pioneered by Hyper-                These problems are particularly pronounced in enterprise
+ledger Fabric [1], reorders the transaction processing steps          applications, where multiple clients frequently interact with
+to address the limitations of the traditional approach. In this       overlapping state variables. While previous enhancements to
+model, transaction proposals are first executed (or simulated)        Fabric have targeted endorsement and ordering optimizations,
+by a subset of peers, known as endorsers, which generate              they do not resolve the core inefficiencies in the commit phase.
+read/write sets and endorsements. These endorsed transactions         To support high-throughput workloads with mixed transac-
+are then ordered via a consensus service. After ordering, each        tional dependencies, a fundamentally new execution model is
+peer validates the transactions against endorsement policies          required—one that introduces minimal architectural changes
+and checks for conflicts before committing them to the ledger.        and remains compatible with Fabric’s existing endorsement
+This separation of execution and ordering enables parallel            policies and smart contract interfaces.
+transaction execution, improves throughput, and allows the               In this paper, we address these issues. Specifically, we
+use of general-purpose programming languages for smart con-           present a dependency-aware transaction execution mechanism
+tracts, as non-deterministic transactions can be detected and         in the Fabric’s architecture. Our approach detailed in Sec-
+filtered out before ordering. The model is particularly suited        tion III includes: (a) a dependency flagging system during
+for permissioned blockchains, where performance, flexibility,         endorsement, marking transactions as independent or depen-
+and strong consistency are essential.                                 dent using a hashmap; (b) an optimized block construction in
+    A key issue lies in how Fabric handles transaction de-            the ordering service that prioritizes independent transactions;
+pendencies. Fabric employs an optimistic concurrency control          (c) the incorporation of a Directed Acyclic Graph (DAG)
+mechanism with versioning, where all transactions are allowed         within each block to represent dependencies; and (d) parallel
+to proceed to the commit phase regardless of conflicts. Final         execution of independent transactions at the committer, with
+validation is deferred to the commit phase (stage 4), where           dependent transactions processed according to DAG order.
+transactions are checked for version consistency. If multiple
+transactions operate on the same key, only the one with the                             III. P ROPOSED S OLUTION
+latest version is committed, while the rest are marked in-               We introduce a transaction dependency-aware execution
+valid. This leads to increased latency, unnecessary retries, and      mechanism for Hyperledger Fabric that enhances parallelism
+wasted compute resources for transactions that are eventually         and reduces transaction rejections. The objective is to detect
+discarded.                                                            dependencies early in the transaction lifecycle and use that
+    For example (briefly discussed in Section I), consider an         information during commitment phase to reduce transaction
+application using the asset-transfer chaincode where 100 con-         rejections while enabling parallel execution wherever possible.
+current transactions each attempt to deduct 100 units from            These enhancements integrates cleanly within the existing Fab-
+the same asset, which has an initial balance of 100. Each             ric architecture, requiring minimal disruption to its consensus
+transaction is endorsed based on the initial state and appears        or chaincode interfaces.
+valid in isolation. However, during commit, only the first               The proposed transaction flow for Hyperledger Fabric, as
+transaction updates the ledger successfully. The remaining            depicted in Fig. 2, introduces a leader endorser and parallel
+99 are rejected due to state version mismatches, since their          execution mechanisms to enhance scalability and efficiency.
+endorsements were based on stale data. This rejection is              The leader endorser coordinates the endorsement process
+detected only in the commit phase and thus increasing the             across all the transaction received by various endorsing peers
+response time which could have been avoided had it been               by maintaining the dependency relation. The process begins
+detected earlier in the endorsement phase. This illustrates the       when the client sends a transaction proposal to an endorser
+importance of conflict-aware application logic in Fabric and          peer, which then forwards the request to a designated leader
+highlights how concurrent writes to the same key can degrade          endorser. The leader endorser simulates the transaction, flags
+                                                                       Custom fields in the block structure store transaction flags
+                                                                       and associated key identifiers, ensuring the committer can
+                                                                       reconstruct dependencies accurately without recomputation.
+                                                                       DAG Construction and Parallel Execution at Commit:
+                                                                       To enable fine-grained concurrency while preserving Fabric’s
+                                                                       consistency guarantees, we enhance the committer to construct
+                                                                       a lightweight Directed Acyclic Graph (DAG) from the trans-
+                                                                       actions in each block. In this DAG, each transaction is rep-
+                                                                       resented as a node, and edges denote key-level dependencies.
+                                                                       An edge from transaction A to B indicates that B depends
+           Fig. 2: Proposed Fabric transaction flow                    on A’s outcome and must be executed afterward. A modified
+                                                                       topological sort organizes transactions into DAG levels, where
+                                                                       independent transactions (flag = 0) form the base level
+any dependencies, and returns both the endorsement and                 and can be executed in parallel, while dependent transactions
+dependency information to the original endorser. The endorser          (flag = 1) are layered above based on their dependency
+relays this endorsement back to the client, who submits the            chains.
+endorsed transaction to the ordering service. After ordering,             We update the commit worker logic to process transactions
+the service broadcasts the block to the committer peer. The            in DAG-level batches. Each level is handled using a thread
+committer constructs a directed acyclic graph (DAG) based              pool, allowing concurrent execution of all transactions in that
+on the flagged dependencies and executes transactions in               level. Once a level is completed, the next level is sched-
+parallel where possible, committing valid results to the ledger.       uled, respecting dependency constraints. If a transaction fails
+This architecture aims to maximize throughput by leveraging            validation (e.g., due to a version mismatch), it is rejected,
+dependency-aware parallelism during the commit phase, while            and its downstream transactions are re-evaluated with updated
+maintaining the integrity and consistency of the ledger state.         context. This ensures consistency while avoiding cascade
+                                                                       failures. All concurrency is managed within the peer node—no
+A. Key Enhancements                                                    client-side changes are needed.
+   The solution introduces modifications across the endorse-           Endorsement Expiry and Conflict Cleanup: To prevent
+ment, ordering, and commit phases, as described below:                 stale metadata from affecting performance, expiry timers are
+Dependency Flagging at Endorsement: We introduce a                     set on all endorsement flags and dependency entries. If a
+flagging mechanism at the leader endorser node. For each               transaction remains uncommitted beyond a defined threshold,
+incoming transaction, we simulate its execution and inspect the        its dependency information is purged. This ensures the system
+key-value pairs it reads and writes. If a key has been recently        remains responsive and avoids memory bloat. In such cases,
+modified or is part of an active endorsement set, the transaction      the client must resubmit the transaction as a new request. Any
+is flagged as dependent (flag = 1); otherwise, it is marked            endorser receiving a transaction with expired metadata will
+as independent (flag = 0). The endorsement, along with the             discard it.
+flag, is sent back to the client. Using this information, the client
+can decide whether to proceed with transaction submission or
+                                                                       B. Proposed Architecture
+delay/abort it. By empowering the client with early conflict
+information, we reduce unnecessary network and validation                 In this section we detail the modified architecture of Hy-
+overhead. This mechanism directly addresses the concurrency            perledger Fabric as proposed in this work. The key idea is
+and commit-phase rejection issues detailed in Section II.              to integrate a dependency-aware execution mechanism while
+   A hashmap is maintained at the endorser to track recent key         retaining the core stages of Fabric’s pipeline: endorsement,
+usage, logging transaction IDs and their accessed keys. Expiry         ordering, and commit. The modified setup introduces changes
+timers are attached to purge stale metadata. This dependency           to each phase, focused on tracking dependencies, constructing
+flag is embedded into the transaction proposal response and is         a DAG from transaction metadata, and enabling level-wise
+propagated through the pipeline.                                       parallel execution at the commit stage.
+   For example, in a scenario where 100 transactions each
+attempt to reduce an asset’s value by 100 (starting from a             Modified Endorsement Logic: In the standard Fabric flow,
+value of 100), the first transaction—having no conflicting             endorsers simulate the transaction and return the read-write
+predecessors—is flagged as independent (flag = 0), while               sets to the client without explicitly tracking dependencies. We
+the rest are flagged as dependent (flag = 1) due to access             extend the logic of the leader endorser to inspect whether the
+on a stale world state.                                                keys involved in the transaction have already been accessed
+Propagation Through Ordering Phase: The ordering ser-                  by other active transactions.
+vice remains mostly unchanged, maintaining compatibility                  A key-value hashmap is maintained to store active keys
+with existing configurations (e.g., Raft, Kafka). However, it          and the latest transaction IDs associated with them. The
+is modified to preserve and forward the dependency metadata.           endorsement logic is modified as follows:
+Algorithm 1 Transaction Endorsement with Dependency Flag-            Algorithm 2 DAG-based Parallel Transaction Processing
+ging                                                                 Require: Block received from ordering service
+Require: Transaction T received                                       1: Construct DAG:
+ 1: Simulate T                                                        2: for all transaction t in block do
+ 2: if simulation fails then                                          3:     if flag(t) == 0 then
+ 3:      Reject T                                                     4:          Add t to Level 0 (independent)
+ 4:      Notify client                                                5:     else
+ 5: else                                                              6:          Add edge from t to parent transaction(s) based on
+ 6:      if variable in T exists in HASHMAP then                         dependency
+ 7:          f lag ← 1                                                7:     end if
+ 8:          Add dependency reference to HASHMAP                      8: end for
+ 9:      else                                                         9: Process DAG:
+10:          f lag ← 0                                               10: for all DAG level L do
+11:          Add variable entry to HASHMAP                           11:     for all transaction t in L in parallel do
+12:      end if                                                      12:          Validate t
+13:      Set endorsement expiry timer                                13:          if valid then
+14:      Sign T with f lag and dependency metadata                   14:              Update world state with t
+15:      Return to client                                            15:              Notify peers and ordering service
+16: end if                                                           16:          else
+                                                                     17:              Reject t
+                                                                     18:          end if
+     a) PCode: Leader Endorser: The pseudocode for the               19:     end for
+leader endorser’s transaction endorsement with dependency            20: end for
+flagging is outlined in Algorithm 1. Upon receiving a transac-
+tion T (line 1), the leader endorser first simulates its execution
+(line 2). If the simulation fails (line 3), the transaction is       transaction(s) based on the recorded dependency information
+rejected and the client is notified (lines 4–5). If the simulation   (lines 6–7). Once the DAG is constructed (line 9), transactions
+succeeds (line 6), the algorithm checks whether any variable         are processed level by level (line 10). Within each level,
+accessed by T already exists in the HASHMAP (line 7). If             all transactions are validated and executed in parallel (lines
+such a variable is found, a dependency flag is set (f lag ← 1),      11–12). If a transaction is valid, the world state is updated
+and a reference to this dependency is added to the HASHMAP           and peers as well as the ordering service are notified (lines
+(lines 8–9). Otherwise, the flag is set to zero and a new entry      13–15); invalid transactions are rejected (lines 16–17). This
+for the variable is created (lines 10–11). The endorser then         method enables safe parallelism by ensuring that dependent
+sets an expiry timer for the endorsement (line 12), signs the        transactions are executed only after their prerequisites, thus
+transaction along with the flag and dependency metadata (line        improving throughput while maintaining correctness.
+13), and returns the result to the client (line 14). This process       Transactions with flag = 0 are processed in parallel im-
+enables the system to efficiently track and signal transaction       mediately. Transactions with flag = 1 are scheduled based
+dependencies, facilitating subsequent parallel execution while       on DAG dependencies. If two dependent transactions are at
+preserving consistency.                                              the same level and do not share keys, they can be executed in
+   This logic ensures that transactions accessing shared state       parallel.
+are marked as dependent, and the information is embedded
+directly into the transaction metadata returned to the client.       Architecture Overview: Figure 3 provides a high-level view
+                                                                     of the modified architecture.
+DAG-Based Block Construction and Commitment: After                      The architecture retains Fabric’s existing modular design.
+transactions are ordered into blocks, they are forwarded to          Clients continue to interact with the peer nodes through stan-
+committing peers. The commit logic is extended to construct a        dard SDK interfaces. The only change is in how dependencies
+lightweight Directed Acyclic Graph (DAG) using the metadata          are internally detected, propagated, and processed. Endorse-
+in the block.                                                        ment flagging, DAG construction, and parallel validation are
+   Algorithm 2 describes the DAG-based parallel transaction          all encapsulated within the peer logic.
+processing approach used by the committer peer. Upon re-
+ceiving a block from the ordering service (line 1), the com-         Commit Thread Scheduling: We integrate a thread pool at
+mitter constructs a directed acyclic graph (DAG) to capture          the committer that processes DAG levels concurrently. This
+transaction dependencies (line 2). For each transaction t in         thread pool dynamically scales with the number of level-
+the block (line 3), if the dependency flag is zero, t is added       0 and level-n transactions. The scheduler ensures that all
+to Level 0 of the DAG, indicating it is independent (lines           parent transactions of a node are completed before the child
+4–5). Otherwise, an edge is added from t to its parent               transaction is validated.
+                                                                                   IV. P ERFORMANCE A NALYSIS
+                                                                      All experiments were conducted on a local development
+                                                                   environment configured for reproducibility and performance
+                                                                   isolation. The setup details are summarized in Table I. Table II
+                                                                   and Table III in the Appendix give a brief summary of the
+                                                                   Fabric components modified by the authors, as well as the
+                                                                   parameters set by the authors for workload simulation.
+                                                                    Component          Specification
+                                                                    Processor          AMD Ryzen 5 5500U, 2.1GHz, 6 cores / 12 threads
+                                                                    Memory             14 GB DDR4 RAM
+                                                                    Disk               512 GB NVMe SSD
+                                                                    Operating System   Ubuntu 24.04 LTS
+
+      Fig. 3: Proposed DAG-aware Fabric Architecture                     TABLE I: Hardware and Software Configuration
+
+                                                                   Note: All results presented here are based on the Voting
+                                                                   Contract. Additional preliminary results for the Asset-Transfer
+   The DAG is constructed using adjacency lists, and a topo-
+                                                                   Contract and Wallet Contract, are provided in the Appendix
+logical sort is applied to determine the execution sequence.
+                                                                   for further comparison and analysis.
+Transactions in the same level are passed to available threads
+                                                                   Experiment Settings: The experiments compare three thread-
+in the pool.
+                                                                   ing strategies. (a) The first is the Original Fabric, which
+                                                                   serves as the baseline implementation without any concur-
+Compatibility and Modularity: The proposed enhancements
+                                                                   rency optimizations. (b) The second approach, Modified Fabric
+are backward-compatible with existing chaincode logic and
+                                                                   (Dynamic Threads), employs a dynamic number of threads
+network configurations. No changes are required in chaincode
+                                                                   equal to the number of transactions at each DAG level, with
+interface, world state structure, or ordering service APIs. This
+                                                                   the count capped by the number of physical cores to prevent
+ensures that networks already using Fabric can adopt the new
+                                                                   oversubscription. (c) The third strategy, referred to as 2-
+model with minimal transition effort.
+                                                                   threaded / 4-threaded Fabric, uses a fixed number of threads
+                                                                   per DAG level, irrespective of the transaction count.
+Expected Impact and Benefits:The proposed enhancements             Experiment 1: Impact of Number of Transaction on
+deliver the following benefits over the default Fabric execution   Throughput
+model:                                                             This experiment illustrated in Figure 4 evaluated the through-
+  • Lower rejection rates: Early dependency detection re-          put across increasing transaction loads. The Modified Fabric
+    duces commit-time rejections, especially under high con-       (Dynamic Threads) consistently achieved higher throughput
+    tention.                                                       than the Original Fabric. At 5000 transactions, throughput
+  • Better resource utilization: Independent transactions are      improved from 0.276 tx/sec to 0.384 tx/sec (approx. 39%
+    executed in parallel, improving CPU and memory usage.          gain). Introduction of fixed-thread variants showed limited
+  • Higher throughput and lower latency: DAG-level con-            or mixed improvements. While 2-threaded execution showed
+    currency significantly improves transaction throughput         some benefit, the 4-threaded variant often plateaued or un-
+    and reduces average response time (ART), as demon-             derperformed due to thread contention or underutilization
+    strated by up to 40% performance gain in our experi-           depending on DAG width.
+    ments.
+  • Minimal architectural disruption: The enhancements
+                                                                   Experiment 2: Latency Reduction Analysis
+    require only internal changes to peer logic; existing chain-   This experiment (Figure 5) focused on average transaction
+    code, clients, and ordering services remain untouched.         latency. The Modified Fabric showed substantial latency reduc-
+  • Scalability with workload dynamics: The system adapts
+                                                                   tion—for example, reducing latency from 192 ms to 115 ms
+    well to mixed workloads with varying dependency ratios.        at 1000 transactions. The 2-threaded and 4-threaded variants
+                                                                   displayed varied performance. The 2-threaded variant showed
+To evaluate the effectiveness of our proposed enhancements,        modest improvements, while the 4-threaded version achieved
+we have carefully designed a series of experiments that sim-       lowest latency in some high-load cases, but exhibited incon-
+ulate realistic and diverse blockchain workloads with varying      sistent behavior due to rigid thread allocation at each DAG
+levels of contention. These experiments are tailored to assess     level.
+whether the expected benefits, such as reduced transaction
+rejection rates, improved resource utilization, and increased      Experiment 3: Impact of Dependency Ratio on Latency
+throughput, are achieved in practice. Section IV details the       This experiment (Figure 6) analyzed performance under vary-
+experiments design, the implementation platform, and the           ing inter-transaction dependencies, measured as a dependency
+observations from results.                                         ratio from 0 to 0.9. As dependency increased, latency in the
+                                                                                        Avg Response Time (ms)
+                                  0.4
+
+
+           Throughput (tx/sec)
+                                                                                                                 200
+                                  0.3
+                                                                                                                 150
+                                  0.2
+                                                                                                                 100
+                                        1,000 2,000 3,000 4,000 5,000
+                                                                                                                        0 0.10.20.30.40.50.60.70.80.9
+                                           Number of Transactions
+                                                                                                                             Dependency Ratio
+                                    (a) Original vs Modified Fabric
+                                                                                                                   (a) Original vs Modified Fabric
+                                             Original         Modified
+                                           Modified-2T       Modified-4T                                                     Original         Modified
+                                                                                                                           Modified-2T      Modified-4T
+
+
+
+
+                                                                                     Avg Response Time (ms)
+                                  0.4
+           Throughput (tx/sec)
+
+
+
+
+                                                                                                                 200
+                                  0.3
+                                                                                                                 150
+                                  0.2
+                                                                                                                 100
+                                        1,000 2,000 3,000 4,000 5,000
+                                                                                                                       0 0.10.20.30.40.50.60.70.80.9
+                                           Number of Transactions
+                                                                                                                            Dependency Ratio
+                                   (b) Parallelism in Modified Fabric
+                                                                                                                  (b) Parallelism in Modified Fabric
+Fig. 4: Experiment 1: Impact of Number of Transaction on
+Throughput                                                                 Fig. 6: Experiment 3: Impact of Dependency Ratio on Latency
+         Avg Response Time (ms)
+
+
+
+
+                                                                           Original Fabric increased significantly, while the Modified
+                                  200                                      Fabric with Dynamic Threads maintained much lower and
+                                  180                                      more stable latencies. The 2-threaded and 4-threaded variants
+                                  160                                      showed mid-range performance, with the 4-threaded approach
+                                                                           performing best at high dependency levels (e.g., 92 ms at 0.9),
+                                  140                                      though not always better than the dynamic strategy.
+                                  120                                         In addition to the core experiments, we evaluated the system
+                                                                           performance by analyzing average response times for both
+                                        1,000 2,000 3,000 4,000 5,000      committed and aborted transactions. These metrics provide
+                                            Number of Transactions         further insight into the user-perceived latency and system
+                                                                           efficiency.
+                                    (a) Original vs Modified Fabric
+                                                                           Average Response Time for Committed and Aborted
+                                              Original         Modified
+                                                                           Transactions:
+                                           Modified-2T       Modified-4T
+                                                                           The Modified Fabric consistently reduced the average response
+         Avg Response Time (ms)
+
+
+
+
+                                  200                                      time for both committed and aborted transactions compared to
+                                  180                                      the Original Fabric across all transaction volumes (see Figure 7
+                                                                           and Figure 8). At 1000 transactions, the average response time
+                                  160                                      for committed transactions dropped from 215 ms to 132 ms,
+                                  140                                      while for aborted transactions, it fell from 165 ms to 98.4 ms.
+                                                                           Notably, the 4-threaded variant sometimes matched or slightly
+                                  120
+                                                                           outperformed the dynamic-threaded Modified Fabric in han-
+                                        1,000 2,000 3,000 4,000 5,000      dling committed transactions, suggesting that fixed parallelism
+                                                                           can occasionally align well with the underlying DAG structure.
+                                            Number of Transactions         However, at higher volumes (e.g., 5000 transactions), the
+                                   (b) Parallelism in Modified Fabric      dynamic approach maintained lower and more stable response
+                                                                           times, especially for committed transactions. In contrast, the
+    Fig. 5: Experiment 2: Latency Reduction Analysis
+                                                                           fixed-threaded setups—particularly the 4-threaded configura-
+         Avg Response Time (Committed) (ms)
+
+
+
+
+                                                                                                            Avg Response Time (ms)
+                                                            Original Fabric     Modified Fabric                                       160
+                                                                                                                                      140
+                                                     200                                                                              120
+                                                                                                                                      100
+                                                     150
+                                                                                                                                            1,000 2,000 3,000 4,000 5,000
+                                                                                                                                                Number of Transactions
+                                                           1,000 2,000 3,000 4,000 5,000                                                 (a) Original vs Modified Fabric
+                                                               Number of Transactions                                                              Original         Modified
+                                                                                                                                                Modified-2T       Modified-4T
+
+
+
+
+                                                                                                            Avg Response Time (ms)
+                                                       (a) Original vs Modified Fabric
+                                                                                                                                      160
+                Avg Response Time (Committed) (ms)
+
+
+
+
+                                                                 Original         Modified
+                                                                Modified-2T      Modified-4T                                          140
+                                                                                                                                      120
+                                                     200                                                                              100
+
+                                                                                                                                            1,000 2,000 3,000 4,000 5,000
+                                                     150                                                                                        Number of Transactions
+                                                                                                                                            (b) Parallelism Comparison
+                                                           1,000 2,000 3,000 4,000 5,000                                             Fig. 8: Aborted Transactions Results
+                                                               Number of Transactions                                                         V. R ELATED W ORK
+
+                                                                                                     Hyperledger Fabric introduced by Androulaki et al. [1]
+                                                           (b) Parallelism Comparison
+                                                                                                  is one of the prominent permissioned blockchain platforms,
+                             Fig. 7: Committed Transactions Results                               designed to provide a modular and extensible architec-
+                                                                                                  ture for enterprise applications. Fabric introduced the exe-
+                                                                                                  cute–order–validate model that separates transaction execution
+                                                                                                  from ordering. Consensus and execution are significant bot-
+tion—showed elevated response times for aborted transactions                                      tlenecks for blockchains for scalability [3]. In permissioned
+(e.g., 131.4 ms at 5000 transactions), likely due to increased                                    blockchain environments like Fabric, the consensus stage
+thread contention and overhead. These results emphasize the                                       generally poses a less significant bottleneck compared to
+adaptability and responsiveness of dynamic threading under                                        permissionless blockchains. This distinction arises because the
+varying workloads and transaction outcomes.                                                       participants in a permissioned network are known, authen-
+                                                                                                  ticated, and partially trusted. Consequently, the system can
+Key Insights from Experiments: The following observations                                         employ more efficient, deterministic consensus algorithms like
+are derived from performance evaluations conducted on the                                         VaaP [4] instead of the computationally intensive protocols
+Voting smart contract. Each experiment examines a specific                                        like proof-of-work [8]. As a result, the primary scalability
+aspect of system performance under various execution strate-                                      challenges in permissioned blockchains typically shift away
+gies, comparing the baseline Original Fabric with optimized                                       from consensus and toward transaction execution, validation,
+versions. All performance metrics reflect either throughput                                       and state management. This observation has motivated a rich
+(transactions per second) or latency (in milliseconds).                                           body of research focused on improving concurrency and
+   The Modified Fabric with Dynamic Threading consistently                                        parallelism in these latter stages.
+outperforms the baseline across all experiments. It adapts                                           To address execution bottlenecks, researchers have explored
+to DAG width dynamically, providing better utilization of                                         Directed Acyclic Graph (DAG)-based transaction processing
+parallelism without overwhelming system resources. Fixed-                                         as a means to enable higher degrees of parallelism [11].
+thread approaches (2T/4T per level) can offer benefits but are                                    By representing dependencies between transactions explicitly,
+sensitive to DAG structure and thread scheduling efficiency.                                      DAG-based approaches allow concurrent execution without
+These results highlight the value of adaptive concurrency in                                      violating deterministic ordering or consistency. Systems such
+smart contract execution models.                                                                  as BlockPilot [14] and RT-DAG [13] leverage dependency-
+aware scheduling to maximize concurrency during the exe-         DAG commit logic would make the solution more robust in
+cution phase, demonstrating substantial throughput improve-      distributed deployments.
+ments over traditional sequential execution models.
+                                                                                               R EFERENCES
+   Beyond these systems, other research efforts have focused
+on constructing order-restricted DAGs for transaction execu-      [1] Androulaki, E., Barger, A., Bortnikov, V., Cachin, C., Christidis, K.,
+                                                                      De Caro, A., Enyeart, D., Ferris, C., Laventman, G., Manevich, Y.,
+tion and sharing these DAGs across peers during the valida-           Muralidharan, S., Murthy, C., Nguyen, B., Sethi, M., Singh, G.,
+tion phase [10], [2]. These frameworks decouple transaction           Smith, K., Sorniotti, A., Stathakopoulou, C., Vukolic, M., Cocco,
+ordering from execution and validation, allowing multiple             S.W., Yellick, J.: Hyperledger fabric: A distributed operating sys-
+                                                                      tem for permissioned blockchains. In: Proceedings of the Thirteenth
+peers to reuse dependency structures efficiently and reducing         EuroSys Conference. pp. 30:1–30:15. EuroSys ’18, ACM (2018).
+redundant computation. Coloring the constructed DAG to                https://doi.org/10.1145/3190508.3190538
+rearrange the DAG levels to get optimized performance is          [2] Anjana, P.S., Kumari, S., Peri, S., Rathor, S., Somani, A.: An Efficient
+                                                                      Framework for Optimistic Concurrent Execution of Smart Contracts. In:
+introduced through Batch-schedule-Execute [6] recently.               PDP. pp. 83–92 (2019)
+   Particularly for Hyperledger Fabric, Fabric++ [9] employs      [3] Dickerson, T., Gazzillo, P., Herlihy, M., Koskinen, E.: Adding Con-
+                                                                      currency to Smart Contracts. p. 303–312. PODC ’17, Association for
+execution result caching, which allows Fabric peers to reuse          Computing Machinery, New York, NY, USA (2017)
+transaction outputs when the input state remains unchanged,       [4] Fu, X., Wang, H., Shi, P.: Votes-as-a-proof (vaap): Permissioned
+thereby avoiding costly re-execution. It also implements spec-        blockchain consensus protocol made simple. IEEE Transactions
+                                                                      on Parallel and Distributed Systems 33(12), 4964–4973 (2022).
+ulative validation to identify potential conflicts earlier in         https://doi.org/10.1109/TPDS.2022.3211829
+the pipeline, reducing wasted work from transactions that         [5] Gorenflo, C., Lee, S., Golab, L., Keshav, S.: Fastfabric: Scaling hy-
+would otherwise be rejected at the commit phase. FastFabric           perledger fabric to 20,000 transactions per second. In: Proceedings
+                                                                      of the 17th USENIX Conference on Networked Systems Design and
+[5] optimizes existing Fabric by including block batching             Implementation. pp. 125–140. USENIX (2020)
+and dynamic block sizing to balance latency and through-          [6] Hay, Y., Friedman, R.: Batch-schedule-execute: On optimizing concur-
+put. FastFabric parallelizes the endorsement and validation           rent deterministic scheduling for blockchains. In: 2024 43rd International
+                                                                      Symposium on Reliable Distributed Systems (SRDS). pp. 163–174
+stages, while employing signature aggregation and caching to          (2024). https://doi.org/10.1109/SRDS64841.2024.00025
+reduce cryptographic cost. These improvements collectively        [7] Kokoris-Kogias, E., Jovanovic, P., Gailly, L., Gasser, L., Ford, B.:
+reduce Fabric’s software overhead and significantly increase          Omniledger: A secure, scale-out, decentralized ledger. In: Proceedings
+                                                                      of the 27th ACM Symposium on Operating Systems Principles. pp. 406–
+performance without altering its consensus or trust model.            421. ACM (2020). https://doi.org/10.1145/3341301.3359631
+Blockchain systems like Omniledger [7], RapidChain [12], and      [8] Nakamoto, S.: Bitcoin: A Peer-to-Peer Electronic Cash System. https:
+NutBolt [15] introduce parallel models with distinct trust and        //bitcoin.org/bitcoin.pdf (2008)
+                                                                  [9] Nasir, Z., Zhang, X., Yu, L., Ren, K.: Fabric++: Optimizing smart con-
+consensus assumptions.                                                tract execution in hyperledger fabric. In: 19th USENIX Symposium on
+Unlike prior approaches that require significant architectural        Networked Systems Design and Implementation. pp. 251–266. USENIX
+changes or new consensus layers, our method preserves full            (2022)
+                                                                 [10] Piduguralla, M., Chakraborty, S., Anjana, P.S., Peri, S.: Dag-based effi-
+compatibility with Fabric’s chaincode, client APIs, and con-          cient parallel scheduler for blockchains: Hyperledger sawtooth as a case
+sensus modules. We implement our modifications on Fab-                study. In: Cano, J., Dikaiakos, M.D., Papadopoulos, G.A., Pericàs, M.,
+ric v2.5 and validate them through experiments on a local             Sakellariou, R. (eds.) Euro-Par 2023: Parallel Processing. pp. 184–198.
+                                                                      Springer Nature Switzerland, Cham (2023)
+Docker-based testbed with varying transaction volumes and        [11] Wang, Q., Yu, J., Peng, Z., Bai, V.C., Guo, Z., Liang, W., Yang, G.:
+dependency levels. Results show up to 40% improvement in              Sok: Dag-based blockchain systems. ACM Computing Surveys 56(5),
+throughput and significant reduction in average response time         1–35 (2024). https://doi.org/10.1145/3576899
+                                                                 [12] Zamani, M., Movahedi, M., Raykova, M.: Rapidchain: Scaling
+for both committed and aborted transactions.                          blockchain via full sharding. In: Proceedings of the 2018 ACM SIGSAC
+                                                                      Conference on Computer and Communications Security. pp. 931–948.
+          VI. C ONCLUSION AND F UTURE W ORK                           ACM (2018). https://doi.org/10.1145/3243734.3243853
+                                                                 [13] Zhang, Z., Hong, C., Zhou, J., Ahmad, I., Zheng, Z., Chen, S.: Rt-
+                                                                      dag: Dag-based blockchain supporting real-time transactions. IEEE
+   Hyperledger Fabric has emerged as a prevalent permis-              Transactions on Parallel and Distributed Systems 35(8), 1349–1363
+sioned blockchain framework; however, its transaction pro-            (2024). https://doi.org/10.1109/TPDS.2024.3416751
+cessing mechanism lacks concurrency-awareness, limiting per-     [14] Zhao, H., Li, Q., Wang, Z., Liu, F., Yang, H., Xu, C., Li,
+                                                                      M.: Blockpilot: A proposer-validator parallel execution framework
+formance under load. This paper introduced a dependency-              for blockchain. In: Proceedings of the 52nd International Confer-
+aware transaction execution scheme for Fabric that identifies         ence on Parallel Processing. pp. 641–651. ICPP ’23, ACM (2023).
+inter-transaction dependencies and uses DAG-based block               https://doi.org/10.1145/3605573.3605621
+                                                                 [15] Zheng, S., Wang, J., Ren, K., Yuan, Y., Wang, B.: Nutbolt: Efficient
+structures to enable parallelism. The implementation extends          and scalable execution of smart contracts. In: Proceedings of the 13th
+the existing Fabric codebase with minimal intrusion, ensuring         USENIX Symposium on Operating Systems Design and Implementa-
+compatibility and maintainability. Experimental evaluations           tion. pp. 755–768. USENIX (2018)
+demonstrate that the modified Fabric significantly outper-
+forms the standard implementation across key metrics. These
+improvements are especially evident in scenarios with high
+contention, where the original Fabric struggles to maintain
+performance. In future work, we plan to incorporate fault-
+tolerant and Byzantine-resilient endorser leader election and
+                             A PPENDIX                                                    Determinism via DAG Execution: The DAG structure en-
+                     Appendix Table of Contents                                           forces a partial order among dependent transactions. The use
+                                                                                          of topological sorting ensures that parent transactions are
+  1) Set-up Summary . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 9   always processed before their children. This guarantees that
+  2) Security and Correctness . . . . . . . . . . . . . . . . . . . . . . . . 9           the final ledger state is deterministic and consistent across all
+  3) Asset-Transfer Contract Results . . . . . . . . . . . . . . . . . 9                  committing peers, regardless of thread scheduling or paral-
+  4) Wallet Contract Results . . . . . . . . . . . . . . . . . . . . . . . . 12           lelism.
+A. Set-up Summary                                                                         The DAG is generated from explicit flags and known depen-
+This environment was used consistently across all experiments                             dencies, and therefore remains the same across all peers. No
+to ensure a fair comparison of the original and modified                                  randomness or non-deterministic ordering is introduced in the
+Fabric behavior. Several key components of Hyperledger Fab-                               execution pipeline.
+ric were modified to support the evaluation of dependency-                                Concurrency Control: Only transactions that are marked
+aware transaction processing. The modifications are detailed                              as independent and conflict-free are allowed to execute in
+in Table II. We have introduced the concept of leader endorser                            parallel. Any transaction with dependencies is delayed until
+to coordinate the dependency for all the transactions received                            its parent transaction(s) complete. This avoids race conditions
+by the endorsing peers. To simulate realistic and diverse                                 and ensures that no transaction is executed in an invalid state.
+                                                                                          All shared structures used during DAG scheduling and commit
+workloads, the experimental setup varied several parameters,
+                                                                                          (e.g., state buffers, world state locks) are synchronized using
+detailed in Table III. Each block contained between 1000
+                                                                                          thread-safe mechanisms, ensuring that data races or interleaved
+and 5000 transactions, with the proportion of transactions
+                                                                                          commits do not corrupt state.
+having dependencies ranging from 0% (no inter-transaction
+                                                                                          Endorsement Validity and Expiry: To prevent stale or
+dependencies) to 90% (highly dependent workloads).
+                                                                                          reused endorsements from affecting correctness, each endorsed
+B. Security and Correctness                                                               transaction includes a validity timeout. If a transaction does
+   Any architectural modification to a permissioned blockchain                            not get committed within this time window, its endorsement
+must maintain the integrity, determinism, and fault tolerance                             is invalidated and the transaction is dropped. This mechanism
+of the original system. Our proposed enhancements to Hyper-                               prevents accumulation of expired or invalid dependency links
+ledger Fabric were designed with these properties in mind,                                and keeps the endorsement context clean.
+ensuring that the changes do not compromise the security                                  Security Summary: In summary, our changes do not bypass
+guarantees already provided by the platform.                                              any of the validation or consensus stages in Fabric. They
+Data Consistency and Validation: Fabric maintains cor-                                    preserve:
+rectness through version checks and endorsement policies.                                    • Ledger correctness: All committed transactions are val-
+Our model preserves this by not altering the semantics of                                       idated and applied in a version-consistent order.
+transaction simulation, endorsement, or validation. Each trans-                              • Execution determinism: DAG execution guarantees
+action still undergoes the same chaincode-based simulation                                      identical ordering and results across peers.
+at endorsers. The DAG formation and utilization remove the                                   • Concurrency safety: All parallel execution is strictly
+need for version check without altering the logic of the version                                controlled using dependency-aware scheduling.
+check (in case that would have been in place). For example,                                  • Peer consistency: All peers construct the same DAG and
+let’s suppose we have 2 endorsed transactions which update                                      validate transactions independently.
+the same asset in the world state. In the case of original logic,                         Thus, the proposed system maintains the security, correctness,
+the first transaction will succeed, but the second transaction                            and trust guarantees of Hyperledger Fabric while improving
+will be rejected. This is because the version of the asset will                           its performance and scalability.
+be updated after the completion of the first transaction. The
+endorsed version in the second transaction would not match                                C. Asset-Transfer Contract Results
+the new version of the asset now. In our updated code base,                                  This section summarizes the experimental findings for the
+the second transaction would be checked as per the chain                                  Asset-Transfer smart contract, evaluating performance across
+code. Passing the check would mean that the transaction would                             different execution strategies: the baseline Original Fabric, the
+not cause any conflicts and could be executed without any                                 Modified Fabric with Dynamic Threads, and fixed-threaded
+issues. Hence, the proposed architecture reduces transaction                              variants (2 threads and 4 threads per DAG level). The results
+rejections without accepting any conflicting transactions. The                            are grouped by transaction volume and dependency ratio to
+dependency flagging added during endorsement is the meta-                                 assess performance under varying conditions.
+data and is used only for scheduling. It does not change the                                 Experiment 1: Throughput vs Number of Transactions
+transaction’s logic or state transitions.                                                 The Modified Fabric demonstrated consistent throughput im-
+Hence, incorrect or conflicting transactions are filtered out                             provement over the Original Fabric. For example, at 5000
+before updating the world state. This ensures that the integrity                          transactions, throughput increased from 0.389 tx/sec to 0.472
+of the ledger is preserved, even when multiple transactions are                           tx/sec. The fixed-threaded versions (2T and 4T) showed
+executed in parallel.                                                                     moderate performance improvements but were generally less
+                                      Component         Modification
+                                      Leader Endorser   Added logic to detect key conflicts and tag transactions with dependency flags
+                                      Committer         Implemented DAG constructor and thread pool-based executor for level-wise validation
+                                      Protobuf Files    Extended block metadata to include transaction dependency markers
+
+                                                        TABLE II: Key Modifications in Hyperledger Fabric
+
+                                                 Parameter                Value / Range
+                                                 Transactions per block   1000 – 5000
+                                                 Dependency ratio         0% – 90%
+                                                 Retry logic              Disabled
+                                                 Threads per committer    2, 4 and dynamic threads in DAG levels
+                                                 Transaction logic        Mix of read/write operations on shared key-value space
+
+                                                             TABLE III: Workload Simulation Parameters
+
+
+                                                                                          adaptive. The 4-threaded variant showed better throughput
+                                                                                          than the 2-threaded one, but the Modified Fabric with dynamic
+                                                                                          thread allocation outperformed both by adjusting concurrency
+                                            Original        Modified
+                                                                                          per DAG level based on available cores and transaction density.
+                       0.5
+                                                                                                                              Original      Modified
+ Throughput (tx/sec)
+
+
+
+
+                       0.4
+                                                                                                          300
+                       0.3
+                                                                                            Avg RT (ms)
+
+
+                                                                                                          250
+                       0.2
+
+
+                       0.1                                                                                200
+                             1,000      2,000      3,000        4,000       5,000
+                                         Number of Transactions
+                                 (a) Throughput vs Transactions
+                                                                                                                1,000     2,000     3,000        4,000   5,000
+                                            Original        Modified
+                                            Mod-2T          Mod-4T                                                                   Txns
+                                                                                                                             (a) All Txns
+                                                                                                                                  Orig      Mod
+                                                                                                                                   2T       4T
+                       0.3
+ Throughput (tx/sec)
+
+
+
+
+                                                                                                          450
+
+
+                       0.2
+                                                                                            Avg RT (ms)
+
+
+
+
+                                                                                                          400
+
+
+                                                                                                          350
+                       0.1
+                             1,000      2,000      3,000        4,000       5,000
+                                         Number of Transactions                                           300
+                                     (b) Throughput vs Threads
+                                                                                                                1,000     2,000     3,000        4,000   5,000
+Fig. 9: Throughput Analysis of Asset Transfer Contract on
+                                                                                                                                     Txns
+Fabric Variants
+                                                                                                                        (b) All Txns - Threads
+                                                                                                          Fig. 10: Average Response Time - All Transactions
+Experiment 2: Average Response Time vs Number of                          Modified Fabric, which maintained a consistent edge.
+Transactions
+In terms of average response time across all transactions, the                                                        Original        Modified
+Modified Fabric offered lower latency in most scenarios. For
+instance, at 1000 transactions, latency dropped from 295 ms
+to 168 ms. However, both 2-threaded and 4-threaded versions                                      80
+showed inconsistent behavior: sometimes approaching the
+Modified Fabric’s performance and other times suffering from
+
+
+
+
+                                                                               Aborted RT (ms)
+overhead, particularly in the 4T configuration due to excessive
+context switching and synchronization.
+                                                                                                 60
+                                        Original      Modified
+
+
+                                                                                                 40
+                     350
+ Committed RT (ms)
+
+
+
+
+                                                                                                       1,000      2,000      3,000       4,000   5,000
+                                                                                                                             Txns
+                     300
+                                                                                                                   (a) Aborted Txns
+                                                                                                                           Orig       Mod
+                     250                                                                                                   2T         4T
+
+
+                     200
+                                                                                                 250
+                           1,000    2,000     3,000       4,000   5,000
+                                                                           Aborted RT (ms)
+
+
+
+                                               Txns
+                                   (a) Committed Txns                                            200
+                                            Orig        Mod
+                                             2T         4T
+                                                                                                 150
+
+                     500
+ Committed RT (ms)
+
+
+
+
+                                                                                                       1,000      2,000      3,000       4,000   5,000
+                                                                                                                              Txns
+                                                                                                               (b) Aborted Txns - Threads
+                     400
+                                                                               Fig. 12: Average Response Time - Aborted Transactions
+
+                                                                          Experiment 2 (Aborted Transactions):
+                                                                          The Modified Fabric also reduced the response time for
+                     300                                                  aborted transactions. At 1000 transactions, the average la-
+                           1,000    2,000     3,000       4,000   5,000   tency dropped from 81 ms to 55.5 ms. The fixed-threaded
+                                               Txns                       approaches lagged behind in this category, with the 4-threaded
+                                                                          variant recording 208.1 ms at the same transaction level,
+                               (b) Committed Txns - Threads
+                                                                          indicating inefficiencies in abort handling with rigid thread
+Fig. 11: Average Response Time - Committed Transactions                   allocation.
+
+Experiment 2 (Committed Transactions):                                    Experiment 3: Response Time vs Dependency Ratio
+The response time for committed transactions also improved                As inter-transaction dependencies increased, the Original Fab-
+significantly with the Modified Fabric. For instance, at 1000             ric showed a dramatic increase in latency (e.g., 642 ms at
+transactions, latency dropped from 370 ms (Original) to 208               dependency ratio 0.3). In contrast, the Modified Fabric was
+ms (Modified). While the 2T and 4T versions yielded occa-                 significantly more stable, maintaining response times in the
+sional benefits (e.g., 315.3 ms for 4T at 2000 transactions),             290–375 ms range across all ratios. The 2T and 4T variants
+they frequently underperformed compared to the adaptive                   showed mixed outcomes—performing well at lower depen-
+Fig. 13: Experiment 3: Dependency Ratio vs Average Re-                 Aborted transaction latency also favored the Modified Fabric.
+sponse Time                                                            For example, at dependency ratio 0.3, the Modified Fabric
+                                                                       recorded 168 ms, while the Original showed 314 ms. The 2T
+                                       Original       Modified         and 4T variants occasionally yielded comparable results (e.g.,
+                                                                       145 ms for 4T at 0.6), but performance varied based on work-
+                                                                       load characteristics, again showing the superior adaptability of
+                                                                       the dynamic threading model.
+ Aborted RT (ms)
+
+
+
+
+                                                                       D. Wallet Contract Results
+                   300
+                                                                         This section of appendix presents a detailed performance
+                                                                       evaluation of the Wallet Contract deployed on Hyperledger
+                                                                       Fabric. The results compare the Original Fabric against an
+                                                                       optimized Modified Fabric version, including multi-threaded
+                   200                                                 variants using 2-thread and 4-thread configurations.
+
+                                                                                                                    Original       Modified
+                         0.1 0.2 0.3 0.4 0.5 0.6 0.7 0.8 0.9
+                                    Dependency Ratio
+                                   (a) Aborted Txns
+
+
+
+                                                                        Throughput (tx/sec)
+                                           Orig       Mod                                      0.2
+                                            2T        4T
+
+
+                   250
+                                                                                              0.15
+ Aborted RT (ms)
+
+
+
+
+                   200                                                                               1,000     2,000       3,000        4,000   5,000
+                                                                                                                        Transactions
+                                                                                                             (a) Original vs Modified
+                   150                                                                                                   Orig     Mod
+                                                                                                                          2T       4T
+                                                                                                                       Thread Scaling
+                         0.1     0.2     0.3     0.4    0.5      0.6
+                                       Dependency Ratio
+                               (b) Aborted Txns - Threads
+                                                                        Throughput (tx/sec)
+
+
+
+
+                                                                                               0.2
+Fig. 14: Avg Response Time vs Dependency Ratio for Aborted
+Transactions
+
+
+
+dency ratios but struggling at higher ones, likely due to rigid                               0.15
+thread scheduling unable to adapt to dependency-heavy DAG
+structures.
+
+Experiment 3 (Committed Transactions):                                                               1,000     2,000       3,000        4,000   5,000
+The Modified Fabric consistently outperformed the baseline in                                                           Transactions
+response time for committed transactions under all dependency                                           (b) Modified Fabric with Threads
+ratios. At 0.3, the Original took 707 ms versus 353 ms
+for Modified. Again, fixed-threaded approaches sometimes               Fig. 15: Wallet Contract - Experiment 1: Throughput vs
+matched the Modified Fabric (e.g., 344 ms for 4T at 0.2) but           Number of Transactions
+failed to maintain consistent gains due to their static nature.
+                                                                       Experiment 1: Throughput vs Number of Transactions ana-
+Experiment 3 (Aborted Transactions):                                   lyzes throughput (in transactions per second) as the number
+of submitted transactions scales from 1,000 to 5,000.                            Fig. 17: Wallet Contract - Experiment 2: Avg Response Time
+  • Original Fabric achieved a maximum throughput of                             for Committed Transactions
+     0.187 tx/sec.                                                                                                           Original vs Modified
+  • Modified Fabric improved performance across all cases,
+                                                                                                            120
+
+
+
+
+                                                                                        Committed RT (ms)
+     peaking at 0.217 tx/sec.
+  • The multi-threaded configurations did not consistently
+     improve throughput; in some cases, throughput degraded                                                 100
+     due to thread contention or synchronization overhead.
+                                                                                                            80
+Fig. 16: Wallet Contract - Experiment 2: Avg Response Time
+for All Transactions                                                                                              1,000     2,000      3,000              4,000   5,000
+
+                                    Original vs Modified                                                                            Transactions
+                                                                                                                                              Original
+                                                                                                                                              Modified
+
+
+                     100                                                                                                  (a) Committed Txns
+       Avg RT (ms)
+
+
+
+
+                                                                                                                                Thread Scaling
+                      80                                                                                    120
+
+
+
+
+                                                                                        Committed RT (ms)
+                      60                                                                                    100
+                           1,000   2,000      3,000              4,000   5,000
+                                           Transactions
+                                                     Original
+                                                     Modified
+                                                                                                            80
+
+                                    (a) All Txns                                                                  1,000     2,000      3,000              4,000   5,000
+
+                                       Thread Scaling                                                                               Transactions
+                                                                                                                                       Orig              Mod
+                                                                                                                                       2T                4T
+
+                     100
+       Avg RT (ms)
+
+
+
+
+                                                                                                                  (b) Committed Txns - Threads
+
+                      80
+                                                                                   •  A marked improvement was seen in the Modified Fabric,
+                                                                                      reducing response time from 59.4 ms to as low as 33.8
+                      60
+                           1,000   2,000      3,000              4,000   5,000        ms.
+                                           Transactions                             • Multi-threaded versions did not consistently improve
+                                              Orig              Mod                   performance for aborted transactions and occasionally
+                                              2T                4T
+                                                                                      increased variability.
+                               (b) All Txns - Threads                            Experiment 3: Average Response Time vs Dependency Ratio
+                                                                                 evaluates system latency across increasing dependency ratios
+                                                                                 (0.0 to 0.9), simulating transaction contention and logical
+Experiment 2: Average Response Time vs Number of Trans-
+                                                                                 dependencies.
+actions measures the average response time (in milliseconds)                        All Transactions:
+under increasing transaction volume, separated by:
+                                                                                    • The Modified Fabric consistently outperformed the Orig-
+  All Transactions:
+                                                                                      inal, with response times ranging from 62.6 ms to 73.3
+  • The Modified Fabric reduced average response time sig-
+                                                                                      ms.
+     nificantly (e.g., 66.4 ms vs 88.5 ms at 1,000 transactions).                   • Multi-threaded      variants     yielded    mixed    re-
+  • The 2-thread configuration often provided a slight benefit;
+                                                                                      sults—sometimes improving response time (e.g., at
+     the 4-thread version showed inconsistent gains.                                  ratio 0.3), but occasionally increasing latency due to
+  Committed Transactions                                                              scheduling inefficiencies.
+  • The Modified Fabric consistently outperformed the Orig-                         Committed Transactions:
+     inal, with improvements up to 20%.                                             • The Modified Fabric offered smoother response time
+  • The 2-thread configuration provided better latency under                          curves across varying ratios.
+     higher load compared to 4-thread, which occasionally                           • The 2-thread and 4-thread variants provided benefits at
+     suffered from synchronization delays.                                            some ratios (e.g., 0.3 to 0.6), though performance often
+  Aborted Transactions                                                                peaked unpredictably at higher contention levels.
+Fig. 18: Wallet Contract - Experiment 2: Avg Response Time
+for Aborted Transactions
+       Aborted RT (ms)                  Original vs Modified
+
+                         60
+
+                         50
+
+                         40
+
+                         30
+                              1,000   2,000      3,000              4,000   5,000
+                                              Transactions
+                                                        Original                    Fig. 19: Wallet Contract - Experiment 3: Average Response
+                                                        Modified
+                                                                                    Time vs Dependency Ratio
+                                      (a) Aborted Txns
+                                                                                                                          Original vs Modified
+                                          Thread Scaling
+
+
+
+
+                                                                                           Aborted RT (ms)
+       Aborted RT (ms)
+
+
+
+
+                         60                                                                                  60
+
+                         50
+                                                                                                             40
+                         40
+                                                                                                                    0.2      0.4     0.6                 0.8
+                         30
+                              1,000   2,000      3,000              4,000   5,000                                          Dependency Ratio
+                                                                                                                                        Original
+                                              Transactions                                                                              Modified
+                                                 Orig              Mod
+                                                 2T                4T                                                 (a) Aborted Txns
+                                (b) Aborted Txns - Threads                                                                  Thread Scaling
+                                                                                           Aborted RT (ms)
+
+
+
+
+  Aborted Transactions:                                                                                      60
+  • The Modified Fabric demonstrated significant improve-
+    ments, with response times reducing from over 65 ms to
+    as low as 36 ms.                                                                                         40
+  • Multi-threaded variants exhibited moderate benefits in
+                                                                                                                    0.2      0.4     0.6                 0.8
+    some cases, but also introduced occasional spikes in
+    response time.                                                                                                         Dependency Ratio
+                                                                                                                                 Orig              Mod
+                                                                                                                                 2T                4T
+
+
+                                                                                                                  (b) Aborted Txns - Threads
+                                                                                        (c) Avg Response Time for Aborted Transactions
+

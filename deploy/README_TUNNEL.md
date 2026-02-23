@@ -4,10 +4,10 @@ This method solves the "different subnet" problem.
 
 ## Architecture
 - **Server C (192.168.50.54):** Acts as the central hub.
-- **Laptops A & B:** Connect to Server C via SSH Tunnels.
+- **VMs 1 & 2:** Connect to Server C via SSH Tunnels (if direct routing is restricted).
 
 ## Step 1: Prepare Config Files
-### On Laptops A & B
+### On VMs 1 & 2
 Use `deploy/cluster_laptops.json`. Rename it to `cluster.json`.
 
 ### On Server C
@@ -15,12 +15,12 @@ Use `deploy/cluster_server.json`. Name it `cluster.json`.
 
 ## Step 2: Establish Tunnels
 
-### On Laptop A (Nodes 1-5)
+### On VM 1 (Nodes 1-5)
 ```bash
 bash deploy/start_tunnel_A.sh
 ```
 
-### On Laptop B (Nodes 6-10)
+### On VM 2 (Nodes 6-10)
 ```bash
 bash deploy/start_tunnel_B.sh
 ```
@@ -37,7 +37,7 @@ SSH into `.54`. Ensure `cluster.json` is the **Server** version.
 ./shard-server -id 15 -config cluster.json &
 ```
 
-### Laptop A (Nodes 1-5)
+### VM 1 (Nodes 1-5)
 ```bash
 ./shard-server -id 1 -config cluster.json &
 ./shard-server -id 2 -config cluster.json &
@@ -46,7 +46,7 @@ SSH into `.54`. Ensure `cluster.json` is the **Server** version.
 ./shard-server -id 5 -config cluster.json &
 ```
 
-### Laptop B (Nodes 6-10)
+### VM 2 (Nodes 6-10)
 ```bash
 ./shard-server -id 6 -config cluster.json &
 ./shard-server -id 7 -config cluster.json &

@@ -4,12 +4,12 @@ This guide provides instructions to deploy and execute the Hyperledger Fabric Sh
 
 ## 1. Environment Topology
 
-You will deploy Fabric and the analytics engine across three machines. Ensure these machines can communicate with each other. If they are on different subnets or behind NAT, it is highly recommended to use **Tailscale** or **WireGuard** to create a flat overlay network.
+You will deploy Fabric and the analytics engine across three machines (1 Server and 2 VMs). Ensure these machines can communicate with each other directly over the network (no Tailscale or overlay network is required).
 
-**Machine Roles & IPs (Example tailnet IPs):**
-*   **Machine 1 (Server - 100.x.x.1):** Orderer + Peers 1 to 3 (with their local CouchDB state databases)
-*   **Machine 2 (VM 1 - 100.x.x.2):** Peers 4 to 7 (with their local CouchDB state databases)
-*   **Machine 3 (VM 2 - 100.x.x.3):** Benchmark Client (Load Generator) + Centralized Analytics CouchDB
+**Machine Roles & IPs (Example Local IPs):**
+*   **Machine 1 (Server - 192.168.x.1):** Orderer + Peers 1 to 3 (with their local CouchDB state databases)
+*   **Machine 2 (VM 1 - 192.168.x.2):** Peers 4 to 7 (with their local CouchDB state databases)
+*   **Machine 3 (VM 2 - 192.168.x.3):** Benchmark Client (Load Generator) + Centralized Analytics CouchDB
 
 ---
 
@@ -39,7 +39,7 @@ On Machine 3, start the centralized CouchDB instance which will collect all the 
 cd deploy/analytics
 docker-compose -f docker-compose-analytics.yaml up -d
 ```
-*Note: This CouchDB instance will be available on port `5984` and the Fauxton UI can be accessed at `http://100.x.x.3:5984/_utils/`.*
+*Note: This CouchDB instance will be available on port `5984` and the Fauxton UI can be accessed at `http://192.168.x.3:5984/_utils/`.*
 
 ### Step 3.3: Generating Fabric Nodes (Machine 1 & Machine 2)
 We use the python generator script to avoid port conflicts and configure local CouchDB state databases for each peer.
@@ -61,7 +61,7 @@ docker-compose -f docker-compose-server2.yaml up -d
 ### Step 3.4: Distributed Channel & Distinct Smart Contracts Setup
 To simulate real sharding behaviour, distinct smart contracts must be used as independent shards. 
 
-From **Machine 3 (VM 2)**, use standard Fabric CLI to create the channel against `100.x.x.1:7050` and join all 7 peers across Machine 1 and Machine 2.
+From **Machine 3 (VM 2)**, use standard Fabric CLI to create the channel against `192.168.x.1:7050` and join all 7 peers across Machine 1 and Machine 2.
 
 Deploy the 7 standard samples as distinct chaincodes on the channel:
 1.  `fabcar` (Shard 0)
