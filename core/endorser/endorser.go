@@ -31,6 +31,7 @@ import (
 	"context"
 	"fmt"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -367,58 +368,108 @@ func (e *Endorser) ProcessProposalSuccessfullyOrError(up *UnpackedProposal) (*pb
 	}
 
 	// ===== SHARDED RAFT-BASED DEPENDENCY RESOLUTION =====
-	
-	// Group dependencies by shard (contract)
-	contractName := up.ChaincodeName
-	shard, err := e.ShardManager.GetOrCreateShard(contractName)
-	if err != nil {
-		return nil, errors.WithMessage(err, "failed to get shard for contract")
-	}
 
-	// Create and send prepare request to shard
-	prepareReq := &sharding.PrepareRequest{
-		TxID:      up.ChannelHeader.TxId,
-		ShardID:   contractName,
-		ReadSet:   make(map[string][]byte),
-		WriteSet:  make(map[string][]byte),
-		Timestamp: time.Now(),
-	}
-
+	// Identify all involved shards (namespaces) from dependencies
+	involvedShards := make(map[string]map[string][]byte) // shardName -> writeSet
 	for varKey, varValue := range dependencies {
-		prepareReq.WriteSet[varKey] = varValue
+		parts := strings.Split(varKey, ":")
+		if len(parts) > 0 {
+			namespace := parts[0]
+			// Only consider actual chaincode namespaces
+			if namespace != "" && !e.Support.IsSysCC(namespace) {
+				if _, exists := involvedShards[namespace]; !exists {
+					involvedShards[namespace] = make(map[string][]byte)
+				}
+				involvedShards[namespace][varKey] = varValue
+			}
+		}
 	}
+
+	// If the primary chaincode wasn't picked up (e.g. read only with no deps), ensure it's at least queried
+	contractName := up.ChaincodeName
+	if _, exists := involvedShards[contractName]; !exists && !e.Support.IsSysCC(contractName) {
+		involvedShards[contractName] = make(map[string][]byte)
+	}
+
+	var wg sync.WaitGroup
+	var mu sync.Mutex
+	hasDependency := false
+	dependentTxID := ""
+	maxCommitIndex := uint64(0)
+	maxTerm := uint64(0)
+
+	var shardErrors []error
+	contactedShards := make([]*sharding.ShardLeader, 0, len(involvedShards))
 
 	ctx, cancel := context.WithTimeout(context.Background(), DefaultPrepareTimeout)
 	defer cancel()
 
-	select {
-	case shard.ProposeC() <- prepareReq:
-		logger.Debugf("Submitted prepare request for tx %s to shard %s", prepareReq.TxID, contractName)
-	case <-ctx.Done():
-		return nil, errors.New("timeout submitting to shard")
+	for shardName, writeSet := range involvedShards {
+		shard, err := e.ShardManager.GetOrCreateShard(shardName)
+		if err != nil {
+			shardErrors = append(shardErrors, errors.WithMessagef(err, "failed to get shard %s", shardName))
+			continue
+		}
+
+		contactedShards = append(contactedShards, shard)
+		wg.Add(1)
+
+		go func(sName string, s *sharding.ShardLeader, wSet map[string][]byte) {
+			defer wg.Done()
+
+			prepareReq := &sharding.PrepareRequest{
+				TxID:      up.ChannelHeader.TxId,
+				ShardID:   sName,
+				ReadSet:   make(map[string][]byte),
+				WriteSet:  wSet,
+				Timestamp: time.Now(),
+			}
+
+			select {
+			case s.ProposeC() <- prepareReq:
+				logger.Debugf("Submitted prepare request for tx %s to shard %s", prepareReq.TxID, sName)
+			case <-ctx.Done():
+				mu.Lock()
+				shardErrors = append(shardErrors, fmt.Errorf("timeout submitting to shard %s", sName))
+				mu.Unlock()
+				return
+			}
+
+			select {
+			case proof := <-s.CommitC():
+				if !e.verifyProof(proof) {
+					mu.Lock()
+					shardErrors = append(shardErrors, fmt.Errorf("invalid proof from shard %s", sName))
+					mu.Unlock()
+					return
+				}
+
+				mu.Lock()
+				if proof.CommitIndex > 1 {
+					hasDependency = true
+				}
+				if proof.CommitIndex > maxCommitIndex {
+					maxCommitIndex = proof.CommitIndex
+					maxTerm = proof.Term
+				}
+				mu.Unlock()
+			case <-ctx.Done():
+				mu.Lock()
+				shardErrors = append(shardErrors, fmt.Errorf("timeout waiting for proof from shard %s", sName))
+				mu.Unlock()
+			}
+		}(shardName, shard, writeSet)
 	}
 
-	// Wait for proof from shard
-	var proof *sharding.PrepareProof
-	select {
-	case proof = <-shard.CommitC():
-		logger.Debugf("Received proof for tx %s from shard %s at commit index %d",
-			proof.TxID, proof.ShardID, proof.CommitIndex)
-	case <-ctx.Done():
-		logger.Warnf("Timeout waiting for proof for tx %s, sending abort", prepareReq.TxID)
-		shard.HandleAbort(prepareReq.TxID)
-		return nil, errors.New("timeout waiting for dependency resolution from shard")
-	}
+	wg.Wait()
 
-	// Verify the proof
-	if !e.verifyProof(proof) {
-		logger.Errorf("Invalid proof for tx %s from shard %s", proof.TxID, proof.ShardID)
-		shard.HandleAbort(prepareReq.TxID)
-		return nil, errors.New("invalid proof from shard")
+	if len(shardErrors) > 0 {
+		// Abort on all contacted shards
+		for _, s := range contactedShards {
+			s.HandleAbort(up.ChannelHeader.TxId)
+		}
+		return nil, errors.Errorf("failed to gather dependency proofs: %v", shardErrors)
 	}
-
-	hasDependency := proof.CommitIndex > 1
-	dependentTxID := ""
 
 	// Create chaincode event bytes
 	cceventBytes, err := CreateCCEventBytes(ccevent)
@@ -467,7 +518,7 @@ func (e *Endorser) ProcessProposalSuccessfullyOrError(up *UnpackedProposal) (*pb
 
 	// Include dependency and proof information in response message
 	res.Message = fmt.Sprintf("%s; DependencyInfo:HasDependency=%v,DependentTxID=%s,ShardCommitIndex=%d,ProofTerm=%d",
-		res.Message, hasDependency, dependentTxID, proof.CommitIndex, proof.Term)
+		res.Message, hasDependency, dependentTxID, maxCommitIndex, maxTerm)
 
 	return &pb.ProposalResponse{
 		Version:     1,

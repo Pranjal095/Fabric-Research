@@ -171,59 +171,45 @@ To alter the cluster size for specific experiments (e.g., a cluster of 3 vs 5), 
 
 ---
 
-## 4. Running the Benchmark Experiments
+## 4. Running the Benchmark Experiments (Hyperledger Caliper)
 
-All evaluation benchmarks are automated via the `run_experiments.sh` wrapper script. This script invokes the real `benchmark_client` and passes varying transaction counts, thread sizes, cluster sizes, and dependency rates.
+To obtain natively executed, publishable results for the Dependency-Aware architecture evaluation, this network utilizes **Hyperledger Caliper** rather than mock simulators.
+
+Caliper will generate massive, multi-threaded gRPC cryptographic loads directly against the distinct Smart Contract shards we deployed in Step 3.4.
+
+### Step 4.1: Install Caliper on Machine 3 (Client)
+Ensure you have Node.js (v18+) and npm installed on Machine 3. Then, install the Caliper CLI:
+```bash
+npm install -g @hyperledger/caliper-cli@0.5.0
+```
+
+Because we are targeting Hyperledger Fabric v2.5.x, explicitly bind the Caliper Fabric adapter before running:
+```bash
+caliper bind --caliper-bind-sut fabric:2.4
+```
+*(Caliper 0.5.0 uses the 2.4 adapter for all 2.x Fabric networks).*
+
+### Step 4.2: Execute the Native Benchmarks
+We have configured a comprehensive `caliper-workspace` in the `deploy/` directory that natively targets the 3-VM architecture and contains the dynamic `pcross` custom JavaScript workload generator.
 
 **On Machine 3 (Client):**
 ```bash
-cd deploy/
-chmod +x run_experiments.sh
-./run_experiments.sh
+cd deploy/caliper-workspace
+
+# Run EXPERIMENT 6 (Throughput vs Pcross)
+caliper launch manager \
+  --caliper-workspace . \
+  --caliper-networkconfig network-config.yaml \
+  --caliper-benchconfig benchmarks/config.yaml \
+  --caliper-flow-only-test
 ```
-
-### The 5 Standardized Experiments
-
-The bash script handles the loop for the exact combinations required for your evaluation. Simply uncomment the required line at the bottom of the script.
-
-1.  **EXP 1: Throughput and Reject Rate vs Tx Count**
-    *   Variables: Txs (1000-5000), Dependency (40%), Threads (32), Cluster Size (3 or 5).
-    *   Output: `results_EXP1_Cluster[N]_Tx[X].log`
-
-2.  **EXP 2: Throughput and Reject Rate vs Dependency**
-    *   Variables: Dependency (0%-50%), Txs (1000), Threads (32), Cluster Size (1).
-    *   Output: `results_EXP2_Dep[N].log`
-
-3.  **EXP 3: Throughput and Reject Rate vs Threads**
-    *   Variables: Threads (1, 2, 4, 8, 16, 32), Txs (1000), Dep (40%), Cluster Size (3).
-    *   Output: `results_EXP3_Threads[N].log`
-
-4.  **EXP 4: Throughput and Reject Rate vs Cluster Size**
-    *   Variables: Cluster Size (1, 3, 5, 7), Txs (1000), Dep (40%), Threads (32).
-    *   *Note: Ensure `sharding.json` is updated with all 7 nodes across Machines 1 & 2 before running this specific loop.*
-    *   Output: `results_EXP4_Cluster[N].log`
-
-5.  **EXP 5: Response Time vs Transactions**
-    *   Variables: Txs (1000-5000), Dep (40%), Threads (32), Cluster (3).
-    *   Provides explicit terminal metrics on Overall Avg Response Time, Validate/Commit Time, and Abort Response Time.
-    *   Output: `results_EXP5_Latency_Tx[N].log`
 
 ## 5. Extracting Evaluation Statistics
 
-After the `./run_experiments.sh` script completes, the results are logged automatically.
+Caliper will directly output a beautiful, publishable HTML report (`report.html`) in your workspace directory when the execution finishes. This report details the *true* hardware metrics of the peer network:
+*   **Send Rate (TPS)**
+*   **Max/Min/Avg Latency (ms)**
+*   **Throughput (TPS)**
+*   **Successful/Failed Transactions** 
 
-**Example Log Output (`results_EXP1_Cluster3_Tx1000.log`):**
-```
---- BENCHMARK CLIENT EXECUTION ---
-Routing Targets : Peer=localhost:7051 | Orderer=localhost:7050
-Load Parameters : 1000 Txs | 40.00% Dependency | 32 Threads
-Active Shards   : 7 (fabcar, marbles, smallbank, asset-transfer-basic, token-erc20, commercial-paper, auction)
-----------------------------------
-Distributing transactions across independent chaincode shards...
-Done in 2.19034s
-[METRICS] Throughput: 456.55 TPS
-[METRICS] RejectRate: 40.00%
-[METRICS] AvgResponse: 2.19ms
-```
-
-You can `grep` these text files locally on the Client machine to extract the exact CSV arrays needed to plot the 2D evaluation curves (Using the internal `scripts/plot_benchmark.py` tooling if desired).
+Use these raw network I/O numbers to plot the curves for the final thesis evaluation!

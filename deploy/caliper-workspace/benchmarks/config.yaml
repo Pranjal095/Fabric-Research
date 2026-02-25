@@ -1,0 +1,64 @@
+test:
+  name: "Dependency-Aware Execution Mechanism Evaluation"
+  description: "Benchmarking the multi-shard Raft dependency tracking endorser cluster"
+  workers:
+    type: local
+    number: 32
+  rounds:
+    - label: "EXP 6 - Pcross 0.00"
+      description: "0% Cross-Shard Probability"
+      txNumber: 1000
+      rateControl:
+        type: fixed-load
+        opts:
+          transactionLoad: 32
+      workload:
+        module: workload/cross_shard_load.js
+        arguments:
+          pcross: 0.00
+
+    - label: "EXP 6 - Pcross 0.10"
+      description: "10% Cross-Shard Probability"
+      txNumber: 1000
+      rateControl:
+        type: fixed-load
+        opts:
+          transactionLoad: 32
+      workload:
+        module: workload/cross_shard_load.js
+        arguments:
+          pcross: 0.10
+
+    - label: "EXP 6 - Pcross 0.30"
+      description: "30% Cross-Shard Probability"
+      txNumber: 1000
+      rateControl:
+        type: fixed-load
+        opts:
+          transactionLoad: 32
+      workload:
+        module: workload/cross_shard_load.js
+        arguments:
+          pcross: 0.30
+
+    - label: "EXP 6 - Pcross 0.50"
+      description: "50% Cross-Shard Probability"
+      txNumber: 1000
+      rateControl:
+        type: fixed-load
+        opts:
+          transactionLoad: 32
+      workload:
+        module: workload/cross_shard_load.js
+        arguments:
+          pcross: 0.50
+
+observer:
+  type: local
+  interval: 1
+
+monitor:
+  type: docker
+  docker:
+    containers:
+      - all

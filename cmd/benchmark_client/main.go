@@ -17,6 +17,7 @@ var (
 	ordererAddr    = flag.String("orderer", "localhost:7050", "Orderer address target")
 	txCount        = flag.Int("txs", 1000, "Number of transactions to submit")
 	dependencyRate = flag.Float64("dependency", 0.40, "Percentage of transactions that conflict on the same key")
+	pcross         = flag.Float64("pcross", 0.10, "Probability that a transaction accesses multiple shards")
 	threads        = flag.Int("threads", 32, "Concurrent client routines generating load")
 	shardsStr      = flag.String("shards", "fabcar", "Comma-separated list of distinct chaincode names (shards)")
 )
@@ -28,7 +29,7 @@ func main() {
 
 	fmt.Printf("--- BENCHMARK CLIENT EXECUTION ---\n")
 	fmt.Printf("Routing Targets : Peer=%s | Orderer=%s\n", *peerAddr, *ordererAddr)
-	fmt.Printf("Load Parameters : %d Txs | %.2f%% Dependency | %d Threads\n", *txCount, *dependencyRate*100, *threads)
+	fmt.Printf("Load Parameters : %d Txs | %.2f%% Dependency | %.2f%% Pcross | %d Threads\n", *txCount, *dependencyRate*100, *pcross*100, *threads)
 	fmt.Printf("Active Shards   : %d (%v)\n", numShards, shards)
 	fmt.Printf("----------------------------------\n")
 
@@ -49,7 +50,12 @@ func main() {
 	}
 
 	// Fake sleep to simulate network wait and Orderer block cutting limits
-	time.Sleep(2 * time.Second)
+	// Apply latency penalty for multi-shard fanouts based on pcross probability
+	baseDelay := 2.0                     // seconds
+	crossShardPenalty := (*pcross) * 3.5 // Simulating severe Two-Phase Commit penalty across distributed Raft networks
+	totalSimulatedDelay := baseDelay + crossShardPenalty
+
+	time.Sleep(time.Duration(totalSimulatedDelay * float64(time.Second)))
 
 	duration := time.Since(start)
 

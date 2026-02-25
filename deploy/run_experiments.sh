@@ -22,13 +22,14 @@ FABRIC_VERSION=$1
 run_benchmark() {
     local tx_count=$1
     local dependency=$2
-    local threads=$3
-    local cluster=$4
-    local exp_name=$5
+    local pcross=$3
+    local threads=$4
+    local cluster=$5
+    local exp_name=$6
 
     echo "=========================================================="
     echo "Running Experiment: ${exp_name} | Version: ${FABRIC_VERSION}"
-    echo "Txs: ${tx_count} | Dep: ${dependency} | Threads: ${threads} | Cluster: ${cluster}"
+    echo "Txs: ${tx_count} | Dep: ${dependency} | Pcross: ${pcross} | Threads: ${threads} | Cluster: ${cluster}"
     echo "=========================================================="
 
     local shards_arg=$(IFS=, ; echo "${CC_NAMES[*]}")
@@ -39,6 +40,7 @@ run_benchmark() {
         --orderer "${ORDERER_ADDRESS}" \
         --txs "${tx_count}" \
         --dependency "${dependency}" \
+        --pcross "${pcross}" \
         --threads "${threads}" \
         --shards "${shards_arg}" \
         | tee "${log_file}"
@@ -55,7 +57,7 @@ run_benchmark() {
 run_exp1() {
     local cluster_size=$1 # e.g., 5 or 3
     for tx in 1000 2000 3000 4000 5000; do
-        run_benchmark $tx 0.40 32 $cluster_size "EXP1_Cluster${cluster_size}_Tx${tx}"
+        run_benchmark $tx 0.40 0.10 32 $cluster_size "EXP1_Cluster${cluster_size}_Tx${tx}"
     done
 }
 
@@ -65,7 +67,7 @@ run_exp1() {
 run_exp2() {
     local cluster_size=$1 # e.g., 5 or 3
     for dep in 0.00 0.10 0.20 0.30 0.40 0.50; do
-        run_benchmark 1000 $dep 32 $cluster_size "EXP2_Dep${dep}"
+        run_benchmark 1000 $dep 0.10 32 $cluster_size "EXP2_Dep${dep}"
     done
 }
 
@@ -75,7 +77,7 @@ run_exp2() {
 run_exp3() {
     local cluster_size=$1
     for th in 1 2 4 8 16 32; do
-        run_benchmark 1000 0.40 $th $cluster_size "EXP3_Threads${th}"
+        run_benchmark 1000 0.40 0.10 $th $cluster_size "EXP3_Threads${th}"
     done
 }
 
@@ -84,7 +86,7 @@ run_exp3() {
 # ------------------------------------------------------------------------------
 run_exp4() {
     for c in 1 3 5 7; do
-        run_benchmark 1000 0.40 32 $c "EXP4_Cluster${c}"
+        run_benchmark 1000 0.40 0.10 32 $c "EXP4_Cluster${c}"
     done
 }
 
@@ -94,7 +96,17 @@ run_exp4() {
 run_exp5() {
     local cluster_size=$1
     for tx in 1000 2000 3000 4000 5000; do
-        run_benchmark $tx 0.40 32 $cluster_size "EXP5_Latency_Tx${tx}"
+        run_benchmark $tx 0.40 0.10 32 $cluster_size "EXP5_Latency_Tx${tx}"
+    done
+}
+
+# ------------------------------------------------------------------------------
+# EXPERIMENT 6: Throughput vs Pcross (Cross-Shard Rate)
+# ------------------------------------------------------------------------------
+run_exp6() {
+    local cluster_size=$1
+    for pc_rate in 0.00 0.10 0.20 0.30 0.40 0.50; do
+        run_benchmark 1000 0.40 ${pc_rate} 32 $cluster_size "EXP6_Pcross${pc_rate}"
     done
 }
 
@@ -115,5 +127,6 @@ fi
 # run_exp3 $CLUSTER_SIZE
 # run_exp4
 # run_exp5 $CLUSTER_SIZE
+# run_exp6 $CLUSTER_SIZE
 
 echo "Please uncomment the specific experiment loops inside run_experiments.sh."
