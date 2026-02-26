@@ -84,7 +84,7 @@ if [ "$IS_SERVER_1" = true ]; then
             --channelID mychannel --name ${CC_NAME} --version 1.0 \
             --package-id $CC_PACKAGE_ID --sequence 1
 
-        sleep 2
+        sleep 5
 
         echo "--- Committing $CC_NAME ---"
         ../build/bin/peer lifecycle chaincode commit -o 127.0.0.1:7050 \
@@ -93,7 +93,7 @@ if [ "$IS_SERVER_1" = true ]; then
             --sequence 1 --peerAddresses localhost:7051 \
             --tlsRootCertFiles $CORE_PEER_TLS_ROOTCERT_FILE
             
-        sleep 2
+        sleep 5
     done
     echo "=== All 7 Chaincode Shards Successfully Deployed & Committed! ==="
 else
