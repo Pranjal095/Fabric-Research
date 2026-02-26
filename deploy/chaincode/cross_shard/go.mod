@@ -1,6 +1,6 @@
 module github.com/hyperledger/fabric/deploy/chaincode/cross_shard
 
-go 1.23
+go 1.19
 
 require (
 	github.com/hyperledger/fabric-chaincode-go v0.0.0-20230228194215-b84622ba6a7a

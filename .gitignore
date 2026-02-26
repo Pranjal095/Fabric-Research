@@ -26,4 +26,5 @@ TESTS*.xml
 .vagrant/
 .vscode
 cluster*.json
-shard-serverdeploy/chaincode/cross_shard/vendor/
+shard-server
+deploy/chaincode/cross_shard/vendor/

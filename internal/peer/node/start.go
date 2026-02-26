@@ -59,6 +59,7 @@ import (
 	"github.com/hyperledger/fabric/core/deliverservice"
 	"github.com/hyperledger/fabric/core/dispatcher"
 	"github.com/hyperledger/fabric/core/endorser"
+	"github.com/hyperledger/fabric/core/endorser/sharding"
 	authHandler "github.com/hyperledger/fabric/core/handlers/auth"
 	endorsement2 "github.com/hyperledger/fabric/core/handlers/endorsement/api"
 	endorsement3 "github.com/hyperledger/fabric/core/handlers/endorsement/api/identities"
@@ -758,6 +759,7 @@ func serve(args []string) error {
 		LocalMSP:               localMSP,
 		Support:                endorserSupport,
 		Metrics:                endorser.NewMetrics(metricsProvider),
+		ShardManager:           sharding.NewShardManager(nil, nil),
 	}
 
 	// deploy system chaincodes

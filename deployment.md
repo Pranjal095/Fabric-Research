@@ -68,102 +68,30 @@ Since `ORDERER_GENERAL_BOOTSTRAPMETHOD=none`, the orderer has no system channel.
 ../build/bin/osnadmin channel join --channelID mychannel --config-block ./mychannel.block -o 127.0.0.1:7053 --ca-file ./crypto-config/ordererOrganizations/example.com/orderers/orderer.example.com/tls/ca.crt --client-cert ./crypto-config/ordererOrganizations/example.com/users/Admin@example.com/tls/client.crt --client-key ./crypto-config/ordererOrganizations/example.com/users/Admin@example.com/tls/client.key
 ```
 
-**2. Enter the Peer Container (On Machine 1 - Server):**
-SSH into Machine 1 and open an interactive shell inside Peer 0:
+**2. Automatically Join Peers and Deploy Chaincode Shards**
+Prior versions of this guide utilized outdated Fabric 1.x command structures (`peer chaincode deploy`) and necessitated logging into individual Docker containers. In reality, deploying 7 distinct Smart Contract Shards utilizing the Fabric v2.x lifecycle requires dozens of discrete actions spanning packaging, installation, organizational approvals, and channel commits securely via Mutual TLS.
+
+To prevent manual errors and guarantee that a valid, cross-shard susceptible chaincode exists for the Endorser to trace during the Caliper workload, execute the fully automated `setup_all.sh` deployment script directly from your host machines (no Docker Exec required).
+
+This script dynamically discovers all peers running on the local machine natively, joins them to `mychannel`, and properly installs the 7 chaincode shards utilizing the `cross_shard/chaincode.go` dependency logic required for `pcross` tracking.
+
+**Since you split your 7 peers across two physical machines (Server 1 and VM 1), you MUST run this script independently on each machine!**
+
+*On Server 1 (Host):*
 ```bash
-docker exec -it peer0.org1.example.com bash
+cd deploy/
+chmod +x setup_all.sh
+./setup_all.sh
 ```
+*(This will deploy to Peers 0, 1, 2, and then securely commit the chaincode definitions to the Orderer).*
 
-**3. Set Base Environment Variables (Inside Container):**
-Before running CLI commands, set the environment variables to use Org1's MSP:
+*On VM 1 (IP 10.96.1.87):*
 ```bash
-export CORE_PEER_LOCALMSPID="Org1MSP"
-export CORE_PEER_TLS_ENABLED=false
+cd deploy/
+chmod +x setup_all.sh
+./setup_all.sh
 ```
-
-**4. Join the Server Peers (Machine 1) to the Channel:**
-```bash
-# Join Peer 0
-export CORE_PEER_ADDRESS=192.168.50.54:7051
-peer channel join -b mychannel.block
-
-# Join Peer 1
-export CORE_PEER_ADDRESS=192.168.50.54:8051
-peer channel join -b mychannel.block
-
-# Join Peer 2
-export CORE_PEER_ADDRESS=192.168.50.54:9051
-peer channel join -b mychannel.block
-```
-
-**5. Join the VM 1 Peers (Machine 2) to the Channel:**
-```bash
-# Join Peer 3
-export CORE_PEER_ADDRESS=10.96.1.87:7051
-peer channel join -b mychannel.block
-
-# Join Peer 4
-export CORE_PEER_ADDRESS=10.96.1.87:8051
-peer channel join -b mychannel.block
-
-# Join Peer 5
-export CORE_PEER_ADDRESS=10.96.1.87:9051
-peer channel join -b mychannel.block
-
-# Join Peer 6
-export CORE_PEER_ADDRESS=10.96.1.87:10051
-peer channel join -b mychannel.block
-```
-
-**6. Package and Deploy Chaincodes to the Server (Machine 1):**
-```bash
-# Shard 0: Fabcar (Peer 0)
-peer lifecycle chaincode package fabcar.tar.gz --path /opt/gopath/src/github.com/hyperledger/fabric-samples/chaincode/fabcar/go/ --lang golang --label fabcar_1.0
-export CORE_PEER_ADDRESS=192.168.50.54:7051
-peer lifecycle chaincode install fabcar.tar.gz
-peer chaincode deploy -n fabcar -p /opt/gopath/src/github.com/hyperledger/fabric-samples/chaincode/fabcar/go -c '{"Args":[]}' -o 192.168.50.54:7050
-
-# Shard 1: Marbles (Peer 1)
-peer lifecycle chaincode package marbles.tar.gz --path /opt/gopath/src/github.com/hyperledger/fabric-samples/chaincode/marbles02/go/ --lang golang --label marbles_1.0
-export CORE_PEER_ADDRESS=192.168.50.54:8051
-peer lifecycle chaincode install marbles.tar.gz
-peer chaincode deploy -n marbles -p /opt/gopath/src/github.com/hyperledger/fabric-samples/chaincode/marbles02/go -c '{"Args":[]}' -o 192.168.50.54:7050
-
-# Shard 2: Smallbank (Peer 2)
-peer lifecycle chaincode package smallbank.tar.gz --path /opt/gopath/src/github.com/hyperledger/fabric-samples/chaincode/smallbank/go/ --lang golang --label smallbank_1.0
-export CORE_PEER_ADDRESS=192.168.50.54:9051
-peer lifecycle chaincode install smallbank.tar.gz
-peer chaincode deploy -n smallbank -p /opt/gopath/src/github.com/hyperledger/fabric-samples/chaincode/smallbank/go -c '{"Args":[]}' -o 192.168.50.54:7050
-```
-
-**7. Package and Deploy Chaincodes to VM 1 (Machine 2):**
-```bash
-# Shard 3: Asset Transfer (Peer 3)
-peer lifecycle chaincode package asset.tar.gz --path /opt/gopath/src/github.com/hyperledger/fabric-samples/chaincode/asset-transfer-basic/go/ --lang golang --label asset_1.0
-export CORE_PEER_ADDRESS=10.96.1.87:7051
-peer lifecycle chaincode install asset.tar.gz
-peer chaincode deploy -n asset-transfer-basic -p /opt/gopath/src/github.com/hyperledger/fabric-samples/chaincode/asset-transfer-basic/go -c '{"Args":[]}' -o 192.168.50.54:7050
-
-# Shard 4: Token ERC20 (Peer 4)
-peer lifecycle chaincode package token.tar.gz --path /opt/gopath/src/github.com/hyperledger/fabric-samples/chaincode/token-erc20/go/ --lang golang --label token_1.0
-export CORE_PEER_ADDRESS=10.96.1.87:8051
-peer lifecycle chaincode install token.tar.gz
-peer chaincode deploy -n token-erc20 -p /opt/gopath/src/github.com/hyperledger/fabric-samples/chaincode/token-erc20/go -c '{"Args":[]}' -o 192.168.50.54:7050
-
-# Shard 5: Commercial Paper (Peer 5)
-peer lifecycle chaincode package paper.tar.gz --path /opt/gopath/src/github.com/hyperledger/fabric-samples/chaincode/commercial-paper/go/ --lang golang --label paper_1.0
-export CORE_PEER_ADDRESS=10.96.1.87:9051
-peer lifecycle chaincode install paper.tar.gz
-peer chaincode deploy -n commercial-paper -p /opt/gopath/src/github.com/hyperledger/fabric-samples/chaincode/commercial-paper/go -c '{"Args":[]}' -o 192.168.50.54:7050
-
-# Shard 6: Auction (Peer 6)
-peer lifecycle chaincode package auction.tar.gz --path /opt/gopath/src/github.com/hyperledger/fabric-samples/chaincode/auction/go/ --lang golang --label auction_1.0
-export CORE_PEER_ADDRESS=10.96.1.87:10051
-peer lifecycle chaincode install auction.tar.gz
-peer chaincode deploy -n auction -p /opt/gopath/src/github.com/hyperledger/fabric-samples/chaincode/auction/go -c '{"Args":[]}' -o 192.168.50.54:7050
-```
-
-Once complete, `exit` the container shell.
+*(This will discover and deploy to Peers 3, 4, 5, 6 so they don't crash when Caliper routes transactions to them).*
 
 ### Step 3.5: Configuring Shard Sizes (Optional)
 To alter the cluster size for specific experiments (e.g., a cluster of 3 vs 5), edit the `sharding.json` topology map located in the peer's filesystem path before starting the benchmarks. The peers will hot-reload the Raft configurations. If you are running with the default 7 active shards deployed in Step 3.3, you do not need to do this.

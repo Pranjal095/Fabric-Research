@@ -30,6 +30,10 @@ done
 
 echo ""
 echo "=== Packaging Cross-Shard Chaincode ==="
+cd chaincode/cross_shard
+go mod tidy
+go mod vendor
+cd ../..
 ../build/bin/peer lifecycle chaincode package cross_shard.tar.gz --path ./chaincode/cross_shard --lang golang --label cross_shard_1.0
 
 for PORT in $PEER_PORTS; do
