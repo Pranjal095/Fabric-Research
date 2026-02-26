@@ -77,10 +77,10 @@ Channel: &ChannelDefaults
 Orderer: &OrdererDefaults
   OrdererType: etcdraft
   Addresses:
-    - 192.168.50.54:7050
+    - orderer.example.com:7050
   EtcdRaft:
     Consenters:
-      - Host: 192.168.50.54
+      - Host: orderer.example.com
         Port: 7050
         ClientTLSCert: crypto-config/ordererOrganizations/example.com/orderers/orderer.example.com/tls/server.crt
         ServerTLSCert: crypto-config/ordererOrganizations/example.com/orderers/orderer.example.com/tls/server.crt
