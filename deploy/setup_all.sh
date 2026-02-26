@@ -3,6 +3,8 @@ set -e
 
 echo "=== Fabric Sharded Network Setup ==="
 
+START_INDEX=${1:-0}
+
 export FABRIC_CFG_PATH=$PWD/../sampleconfig
 export CORE_PEER_TLS_ENABLED=true
 export CORE_PEER_TLS_ROOTCERT_FILE=$PWD/crypto-config/peerOrganizations/org1.example.com/peers/peer0.org1.example.com/tls/ca.crt
@@ -14,16 +16,14 @@ ORDERER_TLS_CA=$PWD/crypto-config/ordererOrganizations/example.com/orderers/orde
 # Find all running peers locally (handles both 0.0.0.0 and specific IP bindings, with or without port ranges)
 PEER_PORTS=$(docker ps | grep "hyperledger/fabric-peer" | grep -oP '[0-9\.]+:\K([0-9]+)(?=(-[0-9]+)?->)' | sort -n -u)
 
-# Check if we are on Server 1 (where peer0 is running on port 7051)
+# Check if we are on Server 1 (where the global starting index is 0)
 IS_SERVER_1=false
-if echo "$PEER_PORTS" | grep -q "7051"; then
+if [ "$START_INDEX" -eq 0 ]; then
     IS_SERVER_1=true
 fi
 
 echo "Found local peers on ports:"
 echo "$PEER_PORTS"
-
-START_INDEX=${1:-0}
 
 # We will map ports dynamically to their global peer ID index: INDEX=$(( START_INDEX + ($PORT - 7051) / 1000 ))
 
@@ -62,8 +62,8 @@ done
 if [ "$IS_SERVER_1" = true ]; then
     echo "=== Server 1 Detected: Executing Channel Approvals and Commits ==="
     export CORE_PEER_ADDRESS=localhost:7051
-    export CORE_PEER_TLS_SERVERHOSTOVERRIDE=peer0.org1.example.com
-    export CORE_PEER_TLS_ROOTCERT_FILE=$PWD/crypto-config/peerOrganizations/org1.example.com/peers/peer0.org1.example.com/tls/ca.crt
+    export CORE_PEER_TLS_SERVERHOSTOVERRIDE=peer${START_INDEX}.org1.example.com
+    export CORE_PEER_TLS_ROOTCERT_FILE=$PWD/crypto-config/peerOrganizations/org1.example.com/peers/peer${START_INDEX}.org1.example.com/tls/ca.crt
     sleep 2
     CC_PACKAGE_ID=$(../build/bin/peer lifecycle chaincode queryinstalled | grep "cross_shard_1.0" | grep -o 'cross_shard_1.0:[a-f0-9]*' | head -n 1)
 
