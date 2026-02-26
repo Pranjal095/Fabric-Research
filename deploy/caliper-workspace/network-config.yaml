@@ -3,6 +3,9 @@ version: "2.0.0"
 
 caliper:
   blockchain: fabric
+  sutOptions:
+    mutualTls: true
+    useGateway: true
 
 clients:
   client0.org1.example.com:
@@ -16,6 +19,10 @@ clients:
         path: ../crypto-config/peerOrganizations/org1.example.com/users/User1@org1.example.com/msp/keystore/priv_sk
       clientSignedCert:
         path: ../crypto-config/peerOrganizations/org1.example.com/users/User1@org1.example.com/msp/signcerts/User1@org1.example.com-cert.pem
+      adminPrivateKey:
+        path: ../crypto-config/peerOrganizations/org1.example.com/users/Admin@org1.example.com/msp/keystore/priv_sk
+      adminSignedCert:
+        path: ../crypto-config/peerOrganizations/org1.example.com/users/Admin@org1.example.com/msp/signcerts/Admin@org1.example.com-cert.pem
 
 channels:
   mychannel:

@@ -107,31 +107,34 @@ To obtain natively executed, publishable results for the Dependency-Aware archit
 Caliper will generate massive, multi-threaded gRPC cryptographic loads directly against the distinct Smart Contract shards we deployed in Step 3.4.
 
 ### Step 4.1: Install Caliper on Machine 3 (Client)
-Ensure you have Node.js (v18+) and npm installed on Machine 3. Then, install the Caliper CLI:
-```bash
-npm install -g @hyperledger/caliper-cli@0.5.0
-```
+Ensure you have Node.js (v18+) and npm installed on Machine 3. We will initialize a local NPM workspace to flawlessly isolate Caliper's strict dependency graph from the system.
 
-Because we are targeting Hyperledger Fabric v2.5.x, explicitly bind the Caliper Fabric adapter before running:
 ```bash
-caliper bind --caliper-bind-sut fabric:2.4
+cd deploy/caliper-workspace
+
+# 1. Initialize a literal package.json
+npm init -y
+
+# 2. Install the rock-solid Caliper 0.4.2 CLI directly into this folder
+npm install --save @hyperledger/caliper-cli@0.4.2
+
+# 3. Bind the legacy Fabric 2.2 SDK using the legacy override
+npx caliper bind --caliper-bind-sut fabric:2.2 --caliper-bind-args="--legacy-peer-deps"
 ```
-*(Caliper 0.5.0 uses the 2.4 adapter for all 2.x Fabric networks).*
 
 ### Step 4.2: Execute the Native Benchmarks
 We have configured a comprehensive `caliper-workspace` in the `deploy/` directory that natively targets the 3-VM architecture and contains the dynamic `pcross` custom JavaScript workload generator.
 
 **On Machine 3 (Client):**
 ```bash
-cd deploy/caliper-workspace
-
-# Run EXPERIMENT 6 (Throughput vs Pcross)
-caliper launch manager \
+# 4. Run EXPERIMENT 6 (Throughput vs Pcross)
+npx caliper launch manager \
   --caliper-workspace . \
   --caliper-networkconfig network-config.yaml \
   --caliper-benchconfig benchmarks/config.yaml \
   --caliper-flow-only-test
 ```
+*(Note: Because we are utilizing the modern Fabric 2.2+ SDK adapter, `network-config.yaml` is permanently configured with `useGateway: true` and `mutualTls: true` under the `sutOptions` directive to authenticate successfully).*
 
 ## 5. Extracting Evaluation Statistics
 
