@@ -15,6 +15,8 @@ OrdererOrgs:
         SANS:
           - "127.0.0.1"
           - "localhost"
+          - "192.168.50.54"
+          - "orderer.example.com"
 
 # ---------------------------------------------------------------------------
 # "PeerOrgs" - Definition of organizations managing peer nodes
