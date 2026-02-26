@@ -23,6 +23,9 @@ fi
 echo "Found local peers on ports:"
 echo "$PEER_PORTS"
 
+# Map ports back to an index for the hostname override
+INDEX=0
+
 if [ "$IS_SERVER_1" = true ]; then
     echo "--- Server 1 Detected: Creating Channel on Orderer ---"
     ../build/bin/osnadmin channel join --channelID mychannel --config-block ./mychannel.block -o 127.0.0.1:7053 --ca-file ./crypto-config/ordererOrganizations/example.com/orderers/orderer.example.com/tls/ca.crt --client-cert ./crypto-config/ordererOrganizations/example.com/users/Admin@example.com/tls/client.crt --client-key ./crypto-config/ordererOrganizations/example.com/users/Admin@example.com/tls/client.key || true
@@ -32,8 +35,13 @@ fi
 for PORT in $PEER_PORTS; do
     echo "--- Joining Peer on Port $PORT to mychannel ---"
     export CORE_PEER_ADDRESS=localhost:$PORT
+    export CORE_PEER_TLS_SERVERHOSTOVERRIDE=peer${INDEX}.org1.example.com
+    export CORE_PEER_TLS_ROOTCERT_FILE=$PWD/crypto-config/peerOrganizations/org1.example.com/peers/peer${INDEX}.org1.example.com/tls/ca.crt
     ../build/bin/peer channel join -b mychannel.block -o 127.0.0.1:7050 --ordererTLSHostnameOverride orderer.example.com --tls --cafile $ORDERER_TLS_CA || true
+    INDEX=$((INDEX+1))
 done
+
+INDEX=0
 
 echo ""
 echo "=== Packaging Cross-Shard Chaincode ==="
@@ -46,12 +54,17 @@ cd ../..
 for PORT in $PEER_PORTS; do
     echo "--- Installing Chaincode on Peer on Port $PORT ---"
     export CORE_PEER_ADDRESS=localhost:$PORT
+    export CORE_PEER_TLS_SERVERHOSTOVERRIDE=peer${INDEX}.org1.example.com
+    export CORE_PEER_TLS_ROOTCERT_FILE=$PWD/crypto-config/peerOrganizations/org1.example.com/peers/peer${INDEX}.org1.example.com/tls/ca.crt
     ../build/bin/peer lifecycle chaincode install cross_shard.tar.gz || true
+    INDEX=$((INDEX+1))
 done
 
 if [ "$IS_SERVER_1" = true ]; then
     echo "=== Server 1 Detected: Executing Channel Approvals and Commits ==="
     export CORE_PEER_ADDRESS=localhost:7051
+    export CORE_PEER_TLS_SERVERHOSTOVERRIDE=peer0.org1.example.com
+    export CORE_PEER_TLS_ROOTCERT_FILE=$PWD/crypto-config/peerOrganizations/org1.example.com/peers/peer0.org1.example.com/tls/ca.crt
     sleep 2
     CC_PACKAGE_ID=$(../build/bin/peer lifecycle chaincode queryinstalled | grep "cross_shard_1.0" | grep -o 'cross_shard_1.0:[a-f0-9]*' | head -n 1)
 
