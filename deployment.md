@@ -22,11 +22,13 @@ Since the machines (2 VMs, 1 Server) are in the same network, they can communica
 
 ## 3. Configuration & Startup
 
-### Step 3.1: Building the Binaries
-On all machines, ensure the updated binaries are compiled:
+### Step 3.1: Building the Docker Images
+Since we are running the network using Docker Compose, you must build the Docker images (not just the local binaries) to ensure your custom Go codebase (and the Endorser crash fixes) are actually running inside the containers.
+
+On all machines, ensure the updated images are compiled:
 ```bash
-make orderer
-make peer
+make orderer-docker
+make peer-docker
 ```
 
 ### Step 3.2: Generating Crypto Materials & Genesis Block

@@ -10,8 +10,8 @@ export CORE_PEER_MSPCONFIGPATH=$PWD/crypto-config/peerOrganizations/org1.example
 
 ORDERER_TLS_CA=$PWD/crypto-config/ordererOrganizations/example.com/orderers/orderer.example.com/tls/ca.crt
 
-# Find all running peers locally (handles both 0.0.0.0 and specific IP bindings)
-PEER_PORTS=$(docker ps | grep "hyperledger/fabric-peer" | grep -oP '.*?:([0-9]+)->' | grep -oP '[0-9]+(?=->)' | sort -n)
+# Find all running peers locally (handles both 0.0.0.0 and specific IP bindings, with or without port ranges)
+PEER_PORTS=$(docker ps | grep "hyperledger/fabric-peer" | grep -oP '[0-9\.]+:\K([0-9]+)(?=(-[0-9]+)?->)' | sort -n -u)
 
 # Check if we are on Server 1 (where peer0 is running on port 7051)
 IS_SERVER_1=false
