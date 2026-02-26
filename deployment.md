@@ -27,7 +27,6 @@ On all machines, ensure the updated binaries are compiled:
 ```bash
 make orderer
 make peer
-go build -o deploy/benchmark_client ./cmd/benchmark_client/
 ```
 
 ### Step 3.2: Generating Crypto Materials & Genesis Block

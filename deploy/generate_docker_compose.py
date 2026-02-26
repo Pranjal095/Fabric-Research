@@ -37,6 +37,7 @@ def generate_compose(num_peers, server_id, start_peer=0, start_port=7051, couch_
                 "volumes": [
                     "orderer.example.com:/var/hyperledger/production/orderer",
                     "../build/bin/orderer:/usr/local/bin/orderer:ro",
+                    "../sampleconfig/orderer.yaml:/etc/hyperledger/fabric/orderer.yaml:ro",
                     "./crypto-config/ordererOrganizations/example.com/orderers/orderer.example.com/msp:/var/hyperledger/orderer/msp",
                     "./crypto-config/ordererOrganizations/example.com/orderers/orderer.example.com/tls:/var/hyperledger/orderer/tls"
                 ],
