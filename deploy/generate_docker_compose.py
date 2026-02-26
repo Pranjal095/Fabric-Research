@@ -35,7 +35,8 @@ def generate_compose(num_peers, server_id, start_peer=0, start_port=7051, couch_
                     "ORDERER_ADMIN_TLS_ENABLED=true",
                     "ORDERER_ADMIN_TLS_PRIVATEKEY=/var/hyperledger/orderer/tls/server.key",
                     "ORDERER_ADMIN_TLS_CERTIFICATE=/var/hyperledger/orderer/tls/server.crt",
-                    "ORDERER_ADMIN_TLS_CLIENTAUTHREQUIRED=false",
+                    "ORDERER_ADMIN_TLS_CLIENTAUTHREQUIRED=true",
+                    "ORDERER_ADMIN_TLS_CLIENTROOTCAS=[/var/hyperledger/orderer/tls/ca.crt]",
                     "ORDERER_ADMIN_LISTENADDRESS=0.0.0.0:7053"
                 ],
                 "working_dir": "/opt/gopath/src/github.com/hyperledger/fabric",
