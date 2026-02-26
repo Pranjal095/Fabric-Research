@@ -26,7 +26,7 @@ def generate_compose(num_peers, server_id, start_peer=0, start_port=7051, couch_
                     "ORDERER_GENERAL_LISTENPORT=7050",
                     "ORDERER_GENERAL_LOCALMSPID=OrdererMSP",
                     "ORDERER_GENERAL_LOCALMSPDIR=/var/hyperledger/orderer/msp",
-                    "ORDERER_GENERAL_TLS_ENABLED=true",
+                    "ORDERER_GENERAL_TLS_ENABLED=false",
                     "ORDERER_GENERAL_TLS_PRIVATEKEY=/var/hyperledger/orderer/tls/server.key",
                     "ORDERER_GENERAL_TLS_CERTIFICATE=/var/hyperledger/orderer/tls/server.crt",
                     "ORDERER_GENERAL_TLS_ROOTCAS=[/var/hyperledger/orderer/tls/ca.crt]",
