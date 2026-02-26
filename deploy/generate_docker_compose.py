@@ -71,7 +71,7 @@ def generate_compose(num_peers, server_id, start_peer=0, start_port=7051, couch_
             "container_name": peer_name,
             "image": "hyperledger/fabric-peer:latest",
             "environment": [
-                "CORE_VM_ENDPOINT=unix:///host/var/run/docker.sock",
+                "CORE_VM_ENDPOINT=unix:///var/run/docker.sock",
                 "CORE_VM_DOCKER_HOSTCONFIG_NETWORKMODE=fabric_test",
                 f"CORE_PEER_ID={peer_name}",
                 f"CORE_PEER_ADDRESS={peer_name}:{peer_port}",
@@ -92,7 +92,7 @@ def generate_compose(num_peers, server_id, start_peer=0, start_port=7051, couch_
                 "CORE_PEER_MSPCONFIGPATH=/etc/hyperledger/fabric/msp",
             ],
             "volumes": [
-                "/var/run/docker.sock:/host/var/run/docker.sock",
+                "/var/run/docker.sock:/var/run/docker.sock",
                 f"peer{global_peer_id}.org1.example.com:/var/hyperledger/production",
                 "./sharding.json:/opt/gopath/src/github.com/hyperledger/fabric/peer/sharding.json:ro", # Map the cluster config
                 f"./crypto-config/peerOrganizations/org1.example.com/peers/{peer_name}/msp:/etc/hyperledger/fabric/msp",
