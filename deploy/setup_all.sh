@@ -4,7 +4,8 @@ set -e
 echo "=== Fabric Sharded Network Setup ==="
 
 export FABRIC_CFG_PATH=$PWD/../sampleconfig
-export CORE_PEER_TLS_ENABLED=false
+export CORE_PEER_TLS_ENABLED=true
+export CORE_PEER_TLS_ROOTCERT_FILE=$PWD/crypto-config/peerOrganizations/org1.example.com/peers/peer0.org1.example.com/tls/ca.crt
 export CORE_PEER_LOCALMSPID="Org1MSP"
 export CORE_PEER_MSPCONFIGPATH=$PWD/crypto-config/peerOrganizations/org1.example.com/users/Admin@org1.example.com/msp
 
@@ -76,7 +77,8 @@ if [ "$IS_SERVER_1" = true ]; then
         ../build/bin/peer lifecycle chaincode commit -o 127.0.0.1:7050 \
             --ordererTLSHostnameOverride orderer.example.com --tls --cafile $ORDERER_TLS_CA \
             --channelID mychannel --name ${CC_NAME} --version 1.0 \
-            --sequence 1 --peerAddresses localhost:7051
+            --sequence 1 --peerAddresses localhost:7051 \
+            --tlsRootCertFiles $CORE_PEER_TLS_ROOTCERT_FILE
             
         sleep 2
     done

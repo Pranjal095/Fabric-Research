@@ -85,7 +85,10 @@ def generate_compose(num_peers, server_id, start_peer=0, start_port=7051, couch_
                 "CORE_LEDGER_STATE_COUCHDBCONFIG_USERNAME=admin",
                 "CORE_LEDGER_STATE_COUCHDBCONFIG_PASSWORD=adminpw",
                 "EXPERIMENTAL_SHARDING_ENABLED=true",
-                "CORE_PEER_TLS_ENABLED=false",
+                "CORE_PEER_TLS_ENABLED=true",
+                "CORE_PEER_TLS_CERT_FILE=/etc/hyperledger/fabric/tls/server.crt",
+                "CORE_PEER_TLS_KEY_FILE=/etc/hyperledger/fabric/tls/server.key",
+                "CORE_PEER_TLS_ROOTCERT_FILE=/etc/hyperledger/fabric/tls/ca.crt",
                 "CORE_PEER_MSPCONFIGPATH=/etc/hyperledger/fabric/msp",
             ],
             "volumes": [
