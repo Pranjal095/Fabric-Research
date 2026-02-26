@@ -63,9 +63,9 @@ docker-compose -f docker-compose-server2.yaml up -d
 To utilize proper sharding logic, you **must deploy distinct smart contracts** to represent different logical state partitions (Shards). The safest and most reliable way to execute these commands without local dependency/TLS issues is from *inside* one of the peer containers on the Server.
 
 **1. Create the Channel on the Orderer (On Machine 1 - Server Host):**
-Since `ORDERER_GENERAL_BOOTSTRAPMETHOD=none`, the orderer has no system channel. Tell the Orderer (running at `192.168.50.54:7050`) to create `mychannel` using the `osnadmin` tool compiled directly on your host:
+Since `ORDERER_GENERAL_BOOTSTRAPMETHOD=none`, the orderer has no system channel. Tell the Orderer (running at `192.168.50.54:7050`) to create `mychannel` using the `osnadmin` tool compiled directly on your host. Because the Orderer's admin port (7053) requires mutual TLS, you must pass the Admin's TLS certificates:
 ```bash
-../build/bin/osnadmin channel join --channelID mychannel --config-block ./mychannel.block -o 127.0.0.1:7053
+../build/bin/osnadmin channel join --channelID mychannel --config-block ./mychannel.block -o 127.0.0.1:7053 --ca-file ./crypto-config/ordererOrganizations/example.com/orderers/orderer.example.com/tls/ca.crt --client-cert ./crypto-config/ordererOrganizations/example.com/users/Admin@example.com/tls/client.crt --client-key ./crypto-config/ordererOrganizations/example.com/users/Admin@example.com/tls/client.key
 ```
 
 **2. Enter the Peer Container (On Machine 1 - Server):**
