@@ -58,6 +58,8 @@ Application: &ApplicationDefaults
       Type: ImplicitMeta
       Rule: "MAJORITY Endorsement"
   Capabilities:
+    <<: *ApplicationCapabilities
+
 Channel: &ChannelDefaults
   Policies:
     Readers:
