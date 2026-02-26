@@ -31,7 +31,7 @@ fi
 for PORT in $PEER_PORTS; do
     echo "--- Joining Peer on Port $PORT to mychannel ---"
     export CORE_PEER_ADDRESS=localhost:$PORT
-    ../build/bin/peer channel join -b mychannel.block || true
+    ../build/bin/peer channel join -b mychannel.block -o 127.0.0.1:7050 --ordererTLSHostnameOverride orderer.example.com --tls --cafile $ORDERER_TLS_CA || true
 done
 
 echo ""
