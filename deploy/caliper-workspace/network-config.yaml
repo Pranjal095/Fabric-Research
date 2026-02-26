@@ -5,98 +5,33 @@ caliper:
   blockchain: fabric
   sutOptions:
     mutualTls: true
-    useGateway: true
-
-clients:
-  client0.org1.example.com:
-    client:
-      organization: Org1
-      credentialStore:
-        path: /tmp/hfc-kvs/org1
-        cryptoStore:
-          path: /tmp/hfc-cvs/org1
-      clientPrivateKey:
-        path: ../crypto-config/peerOrganizations/org1.example.com/users/User1@org1.example.com/msp/keystore/priv_sk
-      clientSignedCert:
-        path: ../crypto-config/peerOrganizations/org1.example.com/users/User1@org1.example.com/msp/signcerts/User1@org1.example.com-cert.pem
-      adminPrivateKey:
-        path: ../crypto-config/peerOrganizations/org1.example.com/users/Admin@org1.example.com/msp/keystore/priv_sk
-      adminSignedCert:
-        path: ../crypto-config/peerOrganizations/org1.example.com/users/Admin@org1.example.com/msp/signcerts/Admin@org1.example.com-cert.pem
 
 channels:
-  mychannel:
-    orderers:
-      - orderer.example.com
-    peers:
-      peer0.org1.example.com:
-        eventSource: true
-      peer1.org1.example.com:
-        eventSource: true
-      peer2.org1.example.com:
-        eventSource: true
-      peer3.org1.example.com:
-        eventSource: true
-      peer4.org1.example.com:
-        eventSource: true
-      peer5.org1.example.com:
-        eventSource: true
-      peer6.org1.example.com:
-        eventSource: true
+  - channelName: mychannel
+    contracts:
+      - id: fabcar
+      - id: marbles
+      - id: smallbank
+      - id: asset-transfer-basic
+      - id: token-erc20
+      - id: commercial-paper
+      - id: auction
 
 organizations:
-  Org1:
-    mspid: Org1MSP
-    peers:
-      - peer0.org1.example.com
-      - peer1.org1.example.com
-      - peer2.org1.example.com
-      - peer3.org1.example.com
-      - peer4.org1.example.com
-      - peer5.org1.example.com
-      - peer6.org1.example.com
-    certificateAuthorities:
-      - ca.org1.example.com
-    adminPrivateKey:
-      path: ../crypto-config/peerOrganizations/org1.example.com/users/Admin@org1.example.com/msp/keystore/priv_sk
-    signedCert:
-      path: ../crypto-config/peerOrganizations/org1.example.com/users/Admin@org1.example.com/msp/signcerts/Admin@org1.example.com-cert.pem
-
-orderers:
-  orderer.example.com:
-    url: grpc://192.168.50.54:7050
-    grpcOptions:
-      ssl-target-name-override: orderer.example.com
-
-peers:
-  # Machine 1 (Server)
-  peer0.org1.example.com:
-    url: grpc://192.168.50.54:7051
-    grpcOptions:
-      ssl-target-name-override: peer0.org1.example.com
-  peer1.org1.example.com:
-    url: grpc://192.168.50.54:8051
-    grpcOptions:
-      ssl-target-name-override: peer1.org1.example.com
-  peer2.org1.example.com:
-    url: grpc://192.168.50.54:9051
-    grpcOptions:
-      ssl-target-name-override: peer2.org1.example.com
-  
-  # Machine 2 (VM 1)
-  peer3.org1.example.com:
-    url: grpc://10.96.1.87:7051
-    grpcOptions:
-      ssl-target-name-override: peer3.org1.example.com
-  peer4.org1.example.com:
-    url: grpc://10.96.1.87:8051
-    grpcOptions:
-      ssl-target-name-override: peer4.org1.example.com
-  peer5.org1.example.com:
-    url: grpc://10.96.1.87:9051
-    grpcOptions:
-      ssl-target-name-override: peer5.org1.example.com
-  peer6.org1.example.com:
-    url: grpc://10.96.1.87:10051
-    grpcOptions:
-      ssl-target-name-override: peer6.org1.example.com
+  - mspid: Org1MSP
+    identities:
+      certificates:
+        - name: 'User1'
+          clientPrivateKey:
+            path: '../crypto-config/peerOrganizations/org1.example.com/users/User1@org1.example.com/msp/keystore/priv_sk'
+          clientSignedCert:
+            path: '../crypto-config/peerOrganizations/org1.example.com/users/User1@org1.example.com/msp/signcerts/User1@org1.example.com-cert.pem'
+        - name: 'Admin'
+          admin: true
+          clientPrivateKey:
+            path: '../crypto-config/peerOrganizations/org1.example.com/users/Admin@org1.example.com/msp/keystore/priv_sk'
+          clientSignedCert:
+            path: '../crypto-config/peerOrganizations/org1.example.com/users/Admin@org1.example.com/msp/signcerts/Admin@org1.example.com-cert.pem'
+    connectionProfile:
+      path: './connection-profile.yaml'
+      discover: false

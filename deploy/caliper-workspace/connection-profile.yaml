@@ -1,0 +1,83 @@
+name: "Fabric-CCP"
+version: "1.0.0"
+client:
+  organization: Org1
+  connection:
+    timeout:
+      peer:
+        endorser: '300'
+organizations:
+  Org1:
+    mspid: Org1MSP
+    peers:
+      - peer0.org1.example.com
+      - peer1.org1.example.com
+      - peer2.org1.example.com
+      - peer3.org1.example.com
+      - peer4.org1.example.com
+      - peer5.org1.example.com
+      - peer6.org1.example.com
+    certificateAuthorities: []
+
+orderers:
+  orderer.example.com:
+    url: grpcs://192.168.50.54:7050
+    grpcOptions:
+      ssl-target-name-override: orderer.example.com
+      grpc.keepalive_time_ms: 600000
+    tlsCACerts:
+      path: ../crypto-config/ordererOrganizations/example.com/orderers/orderer.example.com/tls/ca.crt
+
+peers:
+  # Machine 1 (Server)
+  peer0.org1.example.com:
+    url: grpcs://192.168.50.54:7051
+    grpcOptions:
+      ssl-target-name-override: peer0.org1.example.com
+      grpc.keepalive_time_ms: 600000
+    tlsCACerts:
+      path: ../crypto-config/peerOrganizations/org1.example.com/peers/peer0.org1.example.com/tls/ca.crt
+  peer1.org1.example.com:
+    url: grpcs://192.168.50.54:8051
+    grpcOptions:
+      ssl-target-name-override: peer1.org1.example.com
+      grpc.keepalive_time_ms: 600000
+    tlsCACerts:
+      path: ../crypto-config/peerOrganizations/org1.example.com/peers/peer1.org1.example.com/tls/ca.crt
+  peer2.org1.example.com:
+    url: grpcs://192.168.50.54:9051
+    grpcOptions:
+      ssl-target-name-override: peer2.org1.example.com
+      grpc.keepalive_time_ms: 600000
+    tlsCACerts:
+      path: ../crypto-config/peerOrganizations/org1.example.com/peers/peer2.org1.example.com/tls/ca.crt
+  
+  # Machine 2 (VM 1)
+  peer3.org1.example.com:
+    url: grpcs://10.96.1.87:7051
+    grpcOptions:
+      ssl-target-name-override: peer3.org1.example.com
+      grpc.keepalive_time_ms: 600000
+    tlsCACerts:
+      path: ../crypto-config/peerOrganizations/org1.example.com/peers/peer3.org1.example.com/tls/ca.crt
+  peer4.org1.example.com:
+    url: grpcs://10.96.1.87:8051
+    grpcOptions:
+      ssl-target-name-override: peer4.org1.example.com
+      grpc.keepalive_time_ms: 600000
+    tlsCACerts:
+      path: ../crypto-config/peerOrganizations/org1.example.com/peers/peer4.org1.example.com/tls/ca.crt
+  peer5.org1.example.com:
+    url: grpcs://10.96.1.87:9051
+    grpcOptions:
+      ssl-target-name-override: peer5.org1.example.com
+      grpc.keepalive_time_ms: 600000
+    tlsCACerts:
+      path: ../crypto-config/peerOrganizations/org1.example.com/peers/peer5.org1.example.com/tls/ca.crt
+  peer6.org1.example.com:
+    url: grpcs://10.96.1.87:10051
+    grpcOptions:
+      ssl-target-name-override: peer6.org1.example.com
+      grpc.keepalive_time_ms: 600000
+    tlsCACerts:
+      path: ../crypto-config/peerOrganizations/org1.example.com/peers/peer6.org1.example.com/tls/ca.crt
