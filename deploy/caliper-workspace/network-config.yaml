@@ -5,6 +5,10 @@ caliper:
   blockchain: fabric
   sutOptions:
     mutualTls: true
+    useGateway: true
+    discovery:
+      enabled: false
+      asLocalhost: false
 
 channels:
   - channelName: mychannel
