@@ -23,8 +23,9 @@ fi
 echo "Found local peers on ports:"
 echo "$PEER_PORTS"
 
-# Map ports back to an index for the hostname override
-INDEX=0
+START_INDEX=${1:-0}
+
+# We will map ports dynamically to their global peer ID index: INDEX=$(( START_INDEX + ($PORT - 7051) / 1000 ))
 
 if [ "$IS_SERVER_1" = true ]; then
     echo "--- Server 1 Detected: Creating Channel on Orderer ---"
@@ -33,15 +34,13 @@ if [ "$IS_SERVER_1" = true ]; then
 fi
 
 for PORT in $PEER_PORTS; do
-    echo "--- Joining Peer on Port $PORT to mychannel ---"
+    INDEX=$(( START_INDEX + (($PORT - 7051) / 1000) ))
+    echo "--- Joining Peer on Port $PORT (peer${INDEX}) to mychannel ---"
     export CORE_PEER_ADDRESS=localhost:$PORT
     export CORE_PEER_TLS_SERVERHOSTOVERRIDE=peer${INDEX}.org1.example.com
     export CORE_PEER_TLS_ROOTCERT_FILE=$PWD/crypto-config/peerOrganizations/org1.example.com/peers/peer${INDEX}.org1.example.com/tls/ca.crt
     ../build/bin/peer channel join -b mychannel.block -o 127.0.0.1:7050 --ordererTLSHostnameOverride orderer.example.com --tls --cafile $ORDERER_TLS_CA || true
-    INDEX=$((INDEX+1))
 done
-
-INDEX=0
 
 echo ""
 echo "=== Packaging Cross-Shard Chaincode ==="
@@ -52,12 +51,12 @@ cd ../..
 ../build/bin/peer lifecycle chaincode package cross_shard.tar.gz --path ./chaincode/cross_shard --lang golang --label cross_shard_1.0
 
 for PORT in $PEER_PORTS; do
-    echo "--- Installing Chaincode on Peer on Port $PORT ---"
+    INDEX=$(( START_INDEX + (($PORT - 7051) / 1000) ))
+    echo "--- Installing Chaincode on Peer on Port $PORT (peer${INDEX}) ---"
     export CORE_PEER_ADDRESS=localhost:$PORT
     export CORE_PEER_TLS_SERVERHOSTOVERRIDE=peer${INDEX}.org1.example.com
     export CORE_PEER_TLS_ROOTCERT_FILE=$PWD/crypto-config/peerOrganizations/org1.example.com/peers/peer${INDEX}.org1.example.com/tls/ca.crt
     ../build/bin/peer lifecycle chaincode install cross_shard.tar.gz || true
-    INDEX=$((INDEX+1))
 done
 
 if [ "$IS_SERVER_1" = true ]; then
