@@ -508,15 +508,33 @@ func (lc *LedgerCommitter) processBlockWithDAG(blockAndPvtData *ledger.BlockAndP
 				// Validate chaincode actions
 				isValid := true
 				for _, action := range tx.Actions {
+					cap := &peer.ChaincodeActionPayload{}
+					if err := proto.Unmarshal(action.Payload, cap); err != nil {
+						logger.Errorf("Failed to unmarshal chaincode action payload for tx %s: %s", id, err)
+						isValid = false
+						break
+					}
+
+					if cap.Action == nil || cap.Action.ProposalResponsePayload == nil {
+						continue // It might be a system transaction or different payload format
+					}
+
+					prp := &peer.ProposalResponsePayload{}
+					if err := proto.Unmarshal(cap.Action.ProposalResponsePayload, prp); err != nil {
+						logger.Errorf("Failed to unmarshal proposal response payload for tx %s: %s", id, err)
+						isValid = false
+						break
+					}
+
 					chaincodeAction := &peer.ChaincodeAction{}
-					if err := proto.Unmarshal(action.Payload, chaincodeAction); err != nil {
+					if err := proto.Unmarshal(prp.Extension, chaincodeAction); err != nil {
 						logger.Errorf("Failed to unmarshal chaincode action for tx %s: %s", id, err)
 						isValid = false
 						break
 					}
 
 					// Check chaincode response status
-					if chaincodeAction.Response == nil || chaincodeAction.Response.Status != 200 {
+					if chaincodeAction.Response != nil && chaincodeAction.Response.Status >= 400 {
 						logger.Errorf("Chaincode action failed for tx %s with status %d", id,
 							chaincodeAction.Response.GetStatus())
 						isValid = false
