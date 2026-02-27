@@ -27,5 +27,17 @@ PeerOrgs:
     EnableNodeOUs: true
     Template:
       Count: 7
+      SANS:
+        - "127.0.0.1"
+        - "localhost"
+        - "192.168.50.54"
+        - "10.96.1.87"
+        - "peer0.org1.example.com"
+        - "peer1.org1.example.com"
+        - "peer2.org1.example.com"
+        - "peer3.org1.example.com"
+        - "peer4.org1.example.com"
+        - "peer5.org1.example.com"
+        - "peer6.org1.example.com"
     Users:
       Count: 1
