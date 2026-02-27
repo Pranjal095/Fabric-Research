@@ -39,7 +39,7 @@ for PORT in $PEER_PORTS; do
     export CORE_PEER_ADDRESS=localhost:$PORT
     export CORE_PEER_TLS_SERVERHOSTOVERRIDE=peer${INDEX}.org1.example.com
     export CORE_PEER_TLS_ROOTCERT_FILE=$PWD/crypto-config/peerOrganizations/org1.example.com/peers/peer${INDEX}.org1.example.com/tls/ca.crt
-    ../build/bin/peer channel join -b mychannel.block -o 127.0.0.1:7050 --ordererTLSHostnameOverride orderer.example.com --tls --cafile $ORDERER_TLS_CA || true
+    ../build/bin/peer channel join -b mychannel.block -o 192.168.50.54:7050 --ordererTLSHostnameOverride orderer.example.com --tls --cafile $ORDERER_TLS_CA || true
 done
 
 echo ""
@@ -78,7 +78,7 @@ if [ "$IS_SERVER_1" = true ]; then
 
     for CC_NAME in "${SHARDS[@]}"; do
         echo "--- Approving $CC_NAME ---"
-        ../build/bin/peer lifecycle chaincode approveformyorg -o 127.0.0.1:7050 \
+        ../build/bin/peer lifecycle chaincode approveformyorg -o 192.168.50.54:7050 \
             --ordererTLSHostnameOverride orderer.example.com --tls --cafile $ORDERER_TLS_CA \
             --channelID mychannel --name ${CC_NAME} --version 1.0 \
             --package-id $CC_PACKAGE_ID --sequence 1
@@ -86,7 +86,7 @@ if [ "$IS_SERVER_1" = true ]; then
         sleep 5
 
         echo "--- Committing $CC_NAME ---"
-        ../build/bin/peer lifecycle chaincode commit -o 127.0.0.1:7050 \
+        ../build/bin/peer lifecycle chaincode commit -o 192.168.50.54:7050 \
             --ordererTLSHostnameOverride orderer.example.com --tls --cafile $ORDERER_TLS_CA \
             --channelID mychannel --name ${CC_NAME} --version 1.0 \
             --sequence 1 --peerAddresses localhost:7051 \
