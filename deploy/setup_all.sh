@@ -29,7 +29,10 @@ echo "$PEER_PORTS"
 
 if [ "$IS_SERVER_1" = true ]; then
     echo "--- Server 1 Detected: Creating Channel on Orderer ---"
-    ../build/bin/osnadmin channel join --channelID mychannel --config-block ./mychannel.block -o 127.0.0.1:7053 --ca-file ./crypto-config/ordererOrganizations/example.com/orderers/orderer.example.com/tls/ca.crt --client-cert ./crypto-config/ordererOrganizations/example.com/users/Admin@example.com/tls/client.crt --client-key ./crypto-config/ordererOrganizations/example.com/users/Admin@example.com/tls/client.key || true
+    cd ..
+    make osnadmin
+    cd deploy
+    ../build/bin/osnadmin channel join --channelID mychannel --config-block ./mychannel.block -o 192.168.50.54:7053 --ca-file ./crypto-config/ordererOrganizations/example.com/orderers/orderer.example.com/tls/ca.crt --client-cert ./crypto-config/ordererOrganizations/example.com/users/Admin@example.com/tls/client.crt --client-key ./crypto-config/ordererOrganizations/example.com/users/Admin@example.com/tls/client.key || true
     sleep 2
 fi
 
