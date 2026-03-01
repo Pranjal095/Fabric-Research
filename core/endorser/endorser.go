@@ -365,12 +365,7 @@ func (e *Endorser) ProcessProposalSuccessfullyOrError(up *UnpackedProposal) (*pb
 
 	if txParams.TXSimulator != nil && !e.Support.IsSysCC(up.ChaincodeName) {
 		// Extract transaction dependencies from simulation results
-		simResults, err := txParams.TXSimulator.GetTxSimulationResults()
-		if err != nil {
-			return nil, errors.WithMessage(err, "error getting simulation results")
-		}
-
-		dependencies, err := e.extractTransactionDependencies(simResults)
+		dependencies, err := e.extractTransactionDependencies(simulationResult)
 		if err != nil {
 			return nil, errors.WithMessage(err, "error extracting transaction dependencies")
 		}
@@ -487,7 +482,15 @@ func (e *Endorser) ProcessProposalSuccessfullyOrError(up *UnpackedProposal) (*pb
 	}
 
 	// Create proposal response payload
-	prpBytes, err := protoutil.GetBytesProposalResponsePayload(up.ProposalHash, res, simulationResult, cceventBytes, &pb.ChaincodeID{
+	var pubSimResBytes []byte
+	if simulationResult != nil {
+		pubSimResBytes, err = simulationResult.GetPubSimulationBytes()
+		if err != nil {
+			return nil, errors.WithMessage(err, "failed to get public simulation bytes")
+		}
+	}
+
+	prpBytes, err := protoutil.GetBytesProposalResponsePayload(up.ProposalHash, res, pubSimResBytes, cceventBytes, &pb.ChaincodeID{
 		Name:    up.ChaincodeName,
 		Version: cdLedger.Version,
 	})

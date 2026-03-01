@@ -13,6 +13,7 @@ import (
 	"github.com/hyperledger/fabric-chaincode-go/shim"
 	pb "github.com/hyperledger/fabric-protos-go/peer"
 	"github.com/hyperledger/fabric/core/common/ccprovider"
+	"github.com/hyperledger/fabric/core/ledger"
 	"github.com/hyperledger/fabric/protoutil"
 	"github.com/pkg/errors"
 	"go.uber.org/zap"
@@ -77,7 +78,7 @@ func (e *Endorser) callChaincode(txParams *ccprovider.TransactionParams, input *
 }
 
 // simulateProposal simulates the proposal by calling the chaincode
-func (e *Endorser) simulateProposal(txParams *ccprovider.TransactionParams, chaincodeName string, chaincodeInput *pb.ChaincodeInput) (*pb.Response, []byte, *pb.ChaincodeEvent, *pb.ChaincodeInterest, error) {
+func (e *Endorser) simulateProposal(txParams *ccprovider.TransactionParams, chaincodeName string, chaincodeInput *pb.ChaincodeInput) (*pb.Response, *ledger.TxSimulationResults, *pb.ChaincodeEvent, *pb.ChaincodeInterest, error) {
 	logger := decorateLogger(logger, txParams)
 
 	meterLabels := []string{
@@ -134,11 +135,5 @@ func (e *Endorser) simulateProposal(txParams *ccprovider.TransactionParams, chai
 		return nil, nil, nil, nil, err
 	}
 
-	pubSimResBytes, err := simResult.GetPubSimulationBytes()
-	if err != nil {
-		e.Metrics.SimulationFailure.With(meterLabels...).Add(1)
-		return nil, nil, nil, nil, err
-	}
-
-	return res, pubSimResBytes, ccevent, ccInterest, nil
+	return res, simResult, ccevent, ccInterest, nil
 }
