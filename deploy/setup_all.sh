@@ -46,12 +46,20 @@ for PORT in $PEER_PORTS; do
 done
 
 echo ""
-echo "=== Packaging Cross-Shard Chaincode ==="
-cd chaincode/cross_shard
-go mod tidy
-go mod vendor
-cd ../..
-../build/bin/peer lifecycle chaincode package cross_shard.tar.gz --path ./chaincode/cross_shard --lang golang --label cross_shard_1.0
+if [ "$IS_SERVER_1" = true ]; then
+    echo "=== Packaging Cross-Shard Chaincode ==="
+    cd chaincode/cross_shard
+    go mod tidy
+    go mod vendor
+    cd ../..
+    ../build/bin/peer lifecycle chaincode package cross_shard.tar.gz --path ./chaincode/cross_shard --lang golang --label cross_shard_1.0
+else
+    echo "=== Using Sync'd Cross-Shard Chaincode ==="
+    if [ ! -f "cross_shard.tar.gz" ]; then
+        echo "ERROR: cross_shard.tar.gz not found! You must sync it from Server 1."
+        exit 1
+    fi
+fi
 
 for PORT in $PEER_PORTS; do
     INDEX=$(( START_INDEX + (($PORT - 7051) / 1000) ))
@@ -102,3 +110,19 @@ else
     echo "=== VM Node Detected: Installation Complete ==="
     echo "You must naturally ensure that you have run this script on the Host Server as well to officially commit the chaincodes to the channel."
 fi
+
+echo "=== Warming up Chaincode Containers (Cold-Start Prevention) ==="
+SHARDS=("fabcar" "marbles" "smallbank" "asset-transfer-basic" "token-erc20" "commercial-paper" "auction")
+
+for PORT in $PEER_PORTS; do
+    INDEX=$(( START_INDEX + (($PORT - 7051) / 1000) ))
+    export CORE_PEER_ADDRESS=localhost:$PORT
+    export CORE_PEER_TLS_SERVERHOSTOVERRIDE=peer${INDEX}.org1.example.com
+    export CORE_PEER_TLS_ROOTCERT_FILE=$PWD/crypto-config/peerOrganizations/org1.example.com/peers/peer${INDEX}.org1.example.com/tls/ca.crt
+    
+    for CC_NAME in "${SHARDS[@]}"; do
+        echo "Warming up $CC_NAME on peer${INDEX}..."
+        ../build/bin/peer chaincode query -C mychannel -n ${CC_NAME} -c '{"function":"invoke","Args":["warmup","warmup"]}' >/dev/null 2>&1 || true
+    done
+done
+echo "=== Chaincodes Warmed Up Successfully! ==="
