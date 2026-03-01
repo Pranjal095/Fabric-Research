@@ -1,5 +1,43 @@
 name: "Fabric-CCP"
 version: "1.0.0"
+channels:
+  mychannel:
+    peers:
+      peer0.org1.example.com:
+        endorsingPeer: true
+        chaincodeQuery: true
+        ledgerQuery: true
+        eventSource: true
+      peer1.org1.example.com:
+        endorsingPeer: true
+        chaincodeQuery: true
+        ledgerQuery: true
+        eventSource: true
+      peer2.org1.example.com:
+        endorsingPeer: true
+        chaincodeQuery: true
+        ledgerQuery: true
+        eventSource: true
+      peer3.org1.example.com:
+        endorsingPeer: true
+        chaincodeQuery: true
+        ledgerQuery: true
+        eventSource: true
+      peer4.org1.example.com:
+        endorsingPeer: true
+        chaincodeQuery: true
+        ledgerQuery: true
+        eventSource: true
+      peer5.org1.example.com:
+        endorsingPeer: true
+        chaincodeQuery: true
+        ledgerQuery: true
+        eventSource: true
+      peer6.org1.example.com:
+        endorsingPeer: true
+        chaincodeQuery: true
+        ledgerQuery: true
+        eventSource: true
 client:
   organization: Org1
   connection:
