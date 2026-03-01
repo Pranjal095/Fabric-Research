@@ -6,9 +6,11 @@ set -e
 # The custom logic maps a Contract Name -> List of Replica IPs.
 # We will map all shards to all 7 peers across both servers based on the connection profile.
 
-echo "Generating deploy/sharding.json..."
+DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )"
 
-cat << 'EOF' > deploy/sharding.json
+echo "Generating $DIR/deploy/sharding.json..."
+
+cat << 'EOF' > "$DIR/deploy/sharding.json"
 {
     "fabcar": [
         "192.168.50.54:7051",
