@@ -40,6 +40,7 @@ peers:
       grpc.keepalive_time_ms: 600000
       grpc.keepalive_timeout_ms: 20000
       grpc.http2.min_time_between_pings_ms: 120000
+      grpc-wait-for-ready-timeout: 15000
     tlsCACerts:
       path: ../crypto-config/peerOrganizations/org1.example.com/peers/peer0.org1.example.com/tls/ca.crt
   peer1.org1.example.com:
@@ -49,6 +50,7 @@ peers:
       grpc.keepalive_time_ms: 600000
       grpc.keepalive_timeout_ms: 20000
       grpc.http2.min_time_between_pings_ms: 120000
+      grpc-wait-for-ready-timeout: 15000
     tlsCACerts:
       path: ../crypto-config/peerOrganizations/org1.example.com/peers/peer1.org1.example.com/tls/ca.crt
   peer2.org1.example.com:
@@ -58,6 +60,7 @@ peers:
       grpc.keepalive_time_ms: 600000
       grpc.keepalive_timeout_ms: 20000
       grpc.http2.min_time_between_pings_ms: 120000
+      grpc-wait-for-ready-timeout: 15000
     tlsCACerts:
       path: ../crypto-config/peerOrganizations/org1.example.com/peers/peer2.org1.example.com/tls/ca.crt
   
@@ -69,6 +72,7 @@ peers:
       grpc.keepalive_time_ms: 600000
       grpc.keepalive_timeout_ms: 20000
       grpc.http2.min_time_between_pings_ms: 120000
+      grpc-wait-for-ready-timeout: 15000
     tlsCACerts:
       path: ../crypto-config/peerOrganizations/org1.example.com/peers/peer3.org1.example.com/tls/ca.crt
   peer4.org1.example.com:
@@ -78,6 +82,7 @@ peers:
       grpc.keepalive_time_ms: 600000
       grpc.keepalive_timeout_ms: 20000
       grpc.http2.min_time_between_pings_ms: 120000
+      grpc-wait-for-ready-timeout: 15000
     tlsCACerts:
       path: ../crypto-config/peerOrganizations/org1.example.com/peers/peer4.org1.example.com/tls/ca.crt
   peer5.org1.example.com:
@@ -87,6 +92,7 @@ peers:
       grpc.keepalive_time_ms: 600000
       grpc.keepalive_timeout_ms: 20000
       grpc.http2.min_time_between_pings_ms: 120000
+      grpc-wait-for-ready-timeout: 15000
     tlsCACerts:
       path: ../crypto-config/peerOrganizations/org1.example.com/peers/peer5.org1.example.com/tls/ca.crt
   peer6.org1.example.com:
@@ -96,5 +102,6 @@ peers:
       grpc.keepalive_time_ms: 600000
       grpc.keepalive_timeout_ms: 20000
       grpc.http2.min_time_between_pings_ms: 120000
+      grpc-wait-for-ready-timeout: 15000
     tlsCACerts:
       path: ../crypto-config/peerOrganizations/org1.example.com/peers/peer6.org1.example.com/tls/ca.crt
