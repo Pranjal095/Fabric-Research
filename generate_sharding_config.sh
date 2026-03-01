@@ -7,10 +7,16 @@ set -e
 # We will map all shards to all 7 peers across both servers based on the connection profile.
 
 DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )"
+SHARDING_FILE="$DIR/deploy/sharding.json"
 
-echo "Generating $DIR/deploy/sharding.json..."
+if [ -d "$SHARDING_FILE" ]; then
+    echo "Docker auto-mounted sharding.json as a directory instead of a file. Cleaning it up..."
+    rm -rf "$SHARDING_FILE"
+fi
 
-cat << 'EOF' > "$DIR/deploy/sharding.json"
+echo "Generating $SHARDING_FILE..."
+
+cat << 'EOF' > "$SHARDING_FILE"
 {
     "fabcar": [
         "192.168.50.54:7051",
