@@ -20,7 +20,7 @@ class CrossShardLoad extends WorkloadModuleBase {
         await super.initializeWorkloadModule(workerIndex, totalWorkers, roundIndex, roundArguments, sutAdapter, sutContext);
 
         this.txIndex = 0;
-        this.pcross = this.roundArguments.pcross || 0.10;
+        this.pcross = this.roundArguments.pcross !== undefined ? this.roundArguments.pcross : 0.10;
 
         // Define all active chaincodes as separate shards
         this.shards = [
