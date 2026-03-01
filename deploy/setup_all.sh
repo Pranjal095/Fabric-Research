@@ -121,8 +121,8 @@ for PORT in $PEER_PORTS; do
     export CORE_PEER_TLS_ROOTCERT_FILE=$PWD/crypto-config/peerOrganizations/org1.example.com/peers/peer${INDEX}.org1.example.com/tls/ca.crt
     
     for CC_NAME in "${SHARDS[@]}"; do
-        echo "Warming up $CC_NAME on peer${INDEX}..."
-        ../build/bin/peer chaincode query -C mychannel -n ${CC_NAME} -c '{"function":"invoke","Args":["warmup","warmup"]}' >/dev/null 2>&1 || true
+        echo "Warming up $CC_NAME on peer${INDEX} in background..."
+        ../build/bin/peer chaincode query -C mychannel -n ${CC_NAME} -c '{"function":"invoke","Args":["warmup","warmup"]}' >/dev/null 2>&1 &
     done
 done
 echo "=== Chaincodes Warmed Up Successfully! ==="
