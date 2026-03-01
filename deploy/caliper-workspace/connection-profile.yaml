@@ -6,6 +6,9 @@ client:
     timeout:
       peer:
         endorser: '1200'
+        eventHub: '1200'
+        eventReg: '1200'
+      orderer: '1200'
 organizations:
   Org1:
     mspid: Org1MSP

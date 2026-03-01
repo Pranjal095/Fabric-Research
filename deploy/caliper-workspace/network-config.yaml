@@ -9,6 +9,11 @@ caliper:
     discovery:
       enabled: false
       asLocalhost: false
+    connectionOptions:
+      discovery:
+        timeout: 100000
+      query:
+        timeout: 100000
 
 channels:
   - channelName: mychannel
