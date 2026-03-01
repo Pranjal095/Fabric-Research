@@ -37,10 +37,35 @@ async function testConnection() {
         console.log('Got network mychannel successfully!');
 
         const contract = network.getContract('fabcar');
-        console.log('Got contract fabcar. Attempting a read-only transaction (queryAllCars)...');
+        const channel = network.getChannel();
 
-        const result = await contract.evaluateTransaction('queryAllCars');
-        console.log(`Transaction evaluation response: ${result.toString()}`);
+        const peersToTest = [
+            'peer0.org1.example.com',
+            'peer3.org1.example.com',
+            'peer6.org1.example.com'
+        ];
+
+        for (const peerName of peersToTest) {
+            console.log(`\n--- Testing ${peerName} ---`);
+            try {
+                const peer = channel.getEndorser(peerName);
+                if (!peer) {
+                    console.log(`❌ Peer ${peerName} not found in channel discovery.`);
+                    continue;
+                }
+
+                const transaction = contract.createTransaction('queryAllCars');
+                transaction.setEndorsingPeers([peer]);
+
+                const result = await transaction.evaluate();
+                console.log(`✅ Success! Response: ${result.toString().substring(0, 100)}...`);
+            } catch (err) {
+                console.log(`❌ Failed on ${peerName}: ${err.message}`);
+                if (err.responses && err.responses.length > 0) {
+                    console.log(`Endorsement Error Details: ${err.responses[0].message}`);
+                }
+            }
+        }
 
         gateway.disconnect();
     } catch (error) {
