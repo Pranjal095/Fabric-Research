@@ -4,7 +4,7 @@ const path = require('path');
 
 const target = '10.96.1.87:7051';
 const hostOverride = 'peer3.org1.example.com';
-const rootCertPath = path.join(__dirname, 'crypto-config/peerOrganizations/org1.example.com/peers/peer3.org1.example.com/tls/ca.crt');
+const rootCertPath = path.join(__dirname, '../crypto-config/peerOrganizations/org1.example.com/peers/peer3.org1.example.com/tls/ca.crt');
 
 console.log(`Testing gRPC connection to ${target} with hostname override ${hostOverride}`);
 console.log(`Using root cert from: ${rootCertPath}`);
