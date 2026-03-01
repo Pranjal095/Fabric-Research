@@ -28,3 +28,5 @@ TESTS*.xml
 cluster*.json
 shard-server
 deploy/chaincode/cross_shard/vendor/
+deploy/mychannel.block
+deploy/crypto-config/

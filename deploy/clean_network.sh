@@ -9,4 +9,6 @@ docker volume rm $(docker volume ls -q | grep -E "peer[0-9]+|orderer|couchdb") 2
 # Explicitly prune dangling volumes
 docker volume prune -f
 
-echo "Cleanup complete! Proceed to generate_crypto.sh and docker-compose up."
+echo "Cleanup complete! Automatically generating fresh crypto materials..."
+./generate_crypto.sh
+echo "=== Ready! You can now run docker-compose up ==="
