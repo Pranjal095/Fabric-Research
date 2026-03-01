@@ -111,6 +111,25 @@ else
     echo "You must naturally ensure that you have run this script on the Host Server as well to officially commit the chaincodes to the channel."
 fi
 
+if [ "$IS_SERVER_1" != true ]; then
+    echo "=== Synchronizing: Waiting for Server 1 to Commit Chaincodes ==="
+    export CORE_PEER_ADDRESS=localhost:7051
+    export CORE_PEER_TLS_SERVERHOSTOVERRIDE=peer${START_INDEX}.org1.example.com
+    export CORE_PEER_TLS_ROOTCERT_FILE=$PWD/crypto-config/peerOrganizations/org1.example.com/peers/peer${START_INDEX}.org1.example.com/tls/ca.crt
+    
+    for CC_NAME in "${SHARDS[@]}"; do
+        echo "Waiting for $CC_NAME to be committed to the channel by Server 1..."
+        while : ; do
+            COMMITTED=$(../build/bin/peer lifecycle chaincode querycommitted -C mychannel -n ${CC_NAME} 2>&1 || true)
+            if echo "$COMMITTED" | grep -q 'Version: 1.0, Sequence: 1'; then
+                echo "$CC_NAME successfully synced!"
+                break
+            fi
+            sleep 3
+        done
+    done
+fi
+
 echo "=== Warming up Chaincode Containers (Cold-Start Prevention) ==="
 SHARDS=("fabcar" "marbles" "smallbank" "asset-transfer-basic" "token-erc20" "commercial-paper" "auction")
 
@@ -121,8 +140,9 @@ for PORT in $PEER_PORTS; do
     export CORE_PEER_TLS_ROOTCERT_FILE=$PWD/crypto-config/peerOrganizations/org1.example.com/peers/peer${INDEX}.org1.example.com/tls/ca.crt
     
     for CC_NAME in "${SHARDS[@]}"; do
-        echo "Warming up $CC_NAME on peer${INDEX} in background..."
-        ../build/bin/peer chaincode query -C mychannel -n ${CC_NAME} -c '{"function":"invoke","Args":["warmup","warmup"]}' >/dev/null 2>&1 &
+        echo "Warming up $CC_NAME on peer${INDEX} in detached background..."
+        nohup ../build/bin/peer chaincode query -C mychannel -n ${CC_NAME} -c '{"function":"invoke","Args":["warmup","warmup"]}' >/dev/null 2>&1 &
+        disown
     done
 done
 echo "=== Chaincodes Warmed Up Successfully! ==="
