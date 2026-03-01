@@ -51,6 +51,16 @@ def generate_compose(num_peers, server_id, start_peer=0, start_port=7051, couch_
                     "7050:7050",
                     "7053:7053"
                 ],
+                "extra_hosts": [
+                    "orderer.example.com:192.168.50.54",
+                    "peer0.org1.example.com:192.168.50.54",
+                    "peer1.org1.example.com:192.168.50.54",
+                    "peer2.org1.example.com:192.168.50.54",
+                    "peer3.org1.example.com:10.96.1.87",
+                    "peer4.org1.example.com:10.96.1.87",
+                    "peer5.org1.example.com:10.96.1.87",
+                    "peer6.org1.example.com:10.96.1.87"
+                ],
                 "networks": ["fabric_test"]
             }
             volumes["orderer.example.com"] = None
@@ -104,6 +114,16 @@ def generate_compose(num_peers, server_id, start_peer=0, start_port=7051, couch_
             "ports": [
                 f"{peer_port}:{peer_port}",
                 f"{chaincode_port}:{chaincode_port}"
+            ],
+            "extra_hosts": [
+                "orderer.example.com:192.168.50.54",
+                "peer0.org1.example.com:192.168.50.54",
+                "peer1.org1.example.com:192.168.50.54",
+                "peer2.org1.example.com:192.168.50.54",
+                "peer3.org1.example.com:10.96.1.87",
+                "peer4.org1.example.com:10.96.1.87",
+                "peer5.org1.example.com:10.96.1.87",
+                "peer6.org1.example.com:10.96.1.87"
             ],
             "depends_on": [couch_name],
             "networks": ["fabric_test"]
