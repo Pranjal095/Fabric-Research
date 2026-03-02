@@ -13,17 +13,21 @@ import (
 	"sync"
 )
 
+// Global Transport instance across all ShardManagers in the Peer
+var (
+	globalTransport     *Transport
+	globalTransportLock sync.Mutex
+)
+
 // Metrics interface for shard metrics
 type Metrics interface{}
 
 // ShardManager manages multiple contract shards
 type ShardManager struct {
-	shards        map[string]*ShardLeader
-	mainTransport *Transport
-	shardsLock    sync.RWMutex
-	transportLock sync.Mutex // Dedicated lock for transport initialization
-	config        map[string]ShardConfig
-	metrics       Metrics
+	shards     map[string]*ShardLeader
+	shardsLock sync.RWMutex
+	config     map[string]ShardConfig
+	metrics    Metrics
 }
 
 // NewShardManager creates a shard manager
@@ -71,14 +75,18 @@ func NewShardManager(configs map[string]ShardConfig, metrics Metrics) *ShardMana
 		peers[uint64(i+1)] = addr
 	}
 
-	// 5. Initialize the Multiplexed Transport
-	transport := NewTransport(replicaID, myAddr, peers)
-	if err := transport.Start(); err != nil {
-		logger.Errorf("Failed to start global shard transport: %v", err)
-	} else {
-		sm.mainTransport = transport
-		logger.Infof("Started global gRPC transport for ShardManager at %s (ReplicaID: %d)", myAddr, replicaID)
+	// 5. Initialize the Multiplexed Transport globally (if it doesn't exist)
+	globalTransportLock.Lock()
+	if globalTransport == nil {
+		transport := NewTransport(replicaID, myAddr, peers)
+		if err := transport.Start(); err != nil {
+			logger.Errorf("Failed to start global shard transport: %v", err)
+		} else {
+			globalTransport = transport
+			logger.Infof("Started global process-level gRPC transport for ShardManager at %s (ReplicaID: %d)", myAddr, replicaID)
+		}
 	}
+	globalTransportLock.Unlock()
 
 	// 6. Pre-initialize any configured shards
 	for shardID, config := range configs {
@@ -144,9 +152,9 @@ func (sm *ShardManager) GetOrCreateShard(contractName string) (*ShardLeader, err
 		return nil, err
 	}
 
-	if sm.mainTransport == nil {
-		sm.transportLock.Lock()
-		if sm.mainTransport == nil {
+	if globalTransport == nil {
+		globalTransportLock.Lock()
+		if globalTransport == nil {
 			peers := make(PeerConfig)
 			for i, addr := range config.ReplicaNodes {
 				peers[uint64(i+1)] = addr
@@ -154,17 +162,17 @@ func (sm *ShardManager) GetOrCreateShard(contractName string) (*ShardLeader, err
 
 			transport := NewTransport(config.ReplicaID, myAddr, peers)
 			if err := transport.Start(); err != nil {
-				sm.transportLock.Unlock()
+				globalTransportLock.Unlock()
 				shard.Stop()
 				return nil, fmt.Errorf("failed to start transport for shard %s: %v", contractName, err)
 			}
-			sm.mainTransport = transport
-			logger.Infof("Started lazy global gRPC transport securely at %s", myAddr)
+			globalTransport = transport
+			logger.Infof("Started lazy global process-level gRPC transport securely at %s", myAddr)
 		}
-		sm.transportLock.Unlock()
+		globalTransportLock.Unlock()
 	}
 
-	sm.mainTransport.RegisterShard(contractName, shard)
+	globalTransport.RegisterShard(contractName, shard)
 
 	sm.shards[contractName] = shard
 
@@ -192,10 +200,13 @@ func (sm *ShardManager) Shutdown() {
 	sm.shardsLock.Lock()
 	defer sm.shardsLock.Unlock()
 
-	if sm.mainTransport != nil {
+	globalTransportLock.Lock()
+	if globalTransport != nil {
 		logger.Infof("Stopping global shard transport")
-		sm.mainTransport.Stop()
+		globalTransport.Stop()
+		globalTransport = nil
 	}
+	globalTransportLock.Unlock()
 
 	for shardID, shard := range sm.shards {
 		logger.Infof("Stopping shard %s", shardID)
