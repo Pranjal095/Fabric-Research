@@ -53,13 +53,32 @@ func (t *Transport) RegisterShard(shardID string, leader *ShardLeader) {
 	go t.consumeMessages(shardID, leader)
 }
 
+// parseAndOffsetPort adds an offset to the port in a host:port string
+func parseAndOffsetPort(addr string, offset int) (string, error) {
+	host, portStr, err := net.SplitHostPort(addr)
+	if err != nil {
+		return "", err
+	}
+	var port int
+	if _, err := fmt.Sscanf(portStr, "%d", &port); err != nil {
+		return "", err
+	}
+	return net.JoinHostPort(host, fmt.Sprintf("%d", port+offset)), nil
+}
+
 // Start starts the gRPC server and message consumer
 func (t *Transport) Start() error {
+	// Offset port by 20000 to avoid collision with Fabric Endorser
+	offsetAddr, err := parseAndOffsetPort(t.address, 20000)
+	if err != nil {
+		return fmt.Errorf("failed to offset port for address %s: %v", t.address, err)
+	}
+
 	// Parse the port from t.address to bind to 0.0.0.0, because the container
 	// doesn't own the host's routable IP
-	_, port, err := net.SplitHostPort(t.address)
+	_, port, err := net.SplitHostPort(offsetAddr)
 	if err != nil {
-		return fmt.Errorf("failed to parse transport address %s: %v", t.address, err)
+		return fmt.Errorf("failed to parse transport address %s: %v", offsetAddr, err)
 	}
 
 	bindAddr := fmt.Sprintf("0.0.0.0:%s", port)
@@ -191,8 +210,13 @@ func (t *Transport) getClient(nodeID uint64) (protos.ShardCommunicationClient, e
 		return nil, fmt.Errorf("unknown peer %d", nodeID)
 	}
 
+	dialAddr, err := parseAndOffsetPort(addr, 20000)
+	if err != nil {
+		return nil, fmt.Errorf("failed to offset port for peer %d address %s: %v", nodeID, addr, err)
+	}
+
 	// Connect
-	conn, err := grpc.Dial(addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	conn, err := grpc.Dial(dialAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
 		return nil, err
 	}

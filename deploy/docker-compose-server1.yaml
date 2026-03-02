@@ -1,0 +1,226 @@
+version: '3.7'
+networks:
+  fabric_test:
+    name: fabric_test
+volumes:
+  orderer.example.com: null
+  peer0.org1.example.com: null
+  peer1.org1.example.com: null
+  peer2.org1.example.com: null
+services:
+  orderer.example.com:
+    container_name: orderer.example.com
+    image: hyperledger/fabric-orderer:latest
+    environment:
+    - FABRIC_LOGGING_SPEC=INFO
+    - ORDERER_GENERAL_LISTENADDRESS=0.0.0.0
+    - ORDERER_GENERAL_LISTENPORT=7050
+    - ORDERER_GENERAL_LOCALMSPID=OrdererMSP
+    - ORDERER_GENERAL_LOCALMSPDIR=/var/hyperledger/orderer/msp
+    - ORDERER_GENERAL_TLS_ENABLED=true
+    - ORDERER_GENERAL_TLS_PRIVATEKEY=/var/hyperledger/orderer/tls/server.key
+    - ORDERER_GENERAL_TLS_CERTIFICATE=/var/hyperledger/orderer/tls/server.crt
+    - ORDERER_GENERAL_TLS_ROOTCAS=[/var/hyperledger/orderer/tls/ca.crt]
+    - ORDERER_GENERAL_BOOTSTRAPMETHOD=none
+    - ORDERER_CHANNELPARTICIPATION_ENABLED=true
+    - ORDERER_ADMIN_TLS_ENABLED=true
+    - ORDERER_ADMIN_TLS_PRIVATEKEY=/var/hyperledger/orderer/tls/server.key
+    - ORDERER_ADMIN_TLS_CERTIFICATE=/var/hyperledger/orderer/tls/server.crt
+    - ORDERER_ADMIN_TLS_CLIENTAUTHREQUIRED=true
+    - ORDERER_ADMIN_TLS_CLIENTROOTCAS=[/var/hyperledger/orderer/tls/ca.crt]
+    - ORDERER_ADMIN_LISTENADDRESS=0.0.0.0:7053
+    working_dir: /opt/gopath/src/github.com/hyperledger/fabric
+    command: orderer
+    volumes:
+    - orderer.example.com:/var/hyperledger/production/orderer
+    - ../sampleconfig/orderer.yaml:/etc/hyperledger/fabric/orderer.yaml:ro
+    - ./crypto-config/ordererOrganizations/example.com/orderers/orderer.example.com/msp:/var/hyperledger/orderer/msp
+    - ./crypto-config/ordererOrganizations/example.com/orderers/orderer.example.com/tls:/var/hyperledger/orderer/tls
+    ports:
+    - 7050:7050
+    - 7053:7053
+    extra_hosts:
+    - orderer.example.com:192.168.50.54
+    - peer0.org1.example.com:192.168.50.54
+    - peer1.org1.example.com:192.168.50.54
+    - peer2.org1.example.com:192.168.50.54
+    - peer3.org1.example.com:10.96.1.87
+    - peer4.org1.example.com:10.96.1.87
+    - peer5.org1.example.com:10.96.1.87
+    - peer6.org1.example.com:10.96.1.87
+    networks:
+    - fabric_test
+  couchdb0:
+    image: couchdb:3.1.1
+    environment:
+    - COUCHDB_USER=admin
+    - COUCHDB_PASSWORD=adminpw
+    ports:
+    - 5984:5984
+    networks:
+    - fabric_test
+  peer0.org1.example.com:
+    container_name: peer0.org1.example.com
+    image: hyperledger/fabric-peer:latest
+    environment:
+    - CORE_VM_ENDPOINT=unix:///host/var/run/docker.sock
+    - CORE_VM_DOCKER_HOSTCONFIG_NETWORKMODE=fabric_test
+    - CORE_PEER_ID=peer0.org1.example.com
+    - CORE_PEER_ADDRESS=peer0.org1.example.com:7051
+    - CORE_PEER_LISTENADDRESS=0.0.0.0:7051
+    - CORE_PEER_CHAINCODELISTENADDRESS=0.0.0.0:7052
+    - CORE_PEER_GOSSIP_BOOTSTRAP=peer0.org1.example.com:7051
+    - CORE_PEER_GOSSIP_EXTERNALENDPOINT=peer0.org1.example.com:7051
+    - CORE_PEER_LOCALMSPID=Org1MSP
+    - CORE_LEDGER_STATE_STATEDATABASE=CouchDB
+    - CORE_LEDGER_STATE_COUCHDBCONFIG_COUCHDBADDRESS=couchdb0:5984
+    - CORE_LEDGER_STATE_COUCHDBCONFIG_USERNAME=admin
+    - CORE_LEDGER_STATE_COUCHDBCONFIG_PASSWORD=adminpw
+    - EXPERIMENTAL_SHARDING_ENABLED=true
+    - CORE_PEER_TLS_ENABLED=true
+    - CORE_PEER_TLS_CERT_FILE=/etc/hyperledger/fabric/tls/server.crt
+    - CORE_PEER_TLS_KEY_FILE=/etc/hyperledger/fabric/tls/server.key
+    - CORE_PEER_TLS_ROOTCERT_FILE=/etc/hyperledger/fabric/tls/ca.crt
+    - CORE_PEER_MSPCONFIGPATH=/etc/hyperledger/fabric/msp
+    volumes:
+    - /var/run/docker.sock:/host/var/run/docker.sock
+    - peer0.org1.example.com:/var/hyperledger/production
+    - ./sharding.json:/opt/gopath/src/github.com/hyperledger/fabric/peer/sharding.json:ro
+    - ./crypto-config/peerOrganizations/org1.example.com/peers/peer0.org1.example.com/msp:/etc/hyperledger/fabric/msp
+    - ./crypto-config/peerOrganizations/org1.example.com/peers/peer0.org1.example.com/tls:/etc/hyperledger/fabric/tls
+    - ../sampleconfig/core.yaml:/etc/hyperledger/fabric/core.yaml:ro
+    working_dir: /opt/gopath/src/github.com/hyperledger/fabric/peer
+    command: peer node start
+    ports:
+    - 7051:7051
+    - 7052:7052
+    - 27051:27051
+    extra_hosts:
+    - orderer.example.com:192.168.50.54
+    - peer0.org1.example.com:192.168.50.54
+    - peer1.org1.example.com:192.168.50.54
+    - peer2.org1.example.com:192.168.50.54
+    - peer3.org1.example.com:10.96.1.87
+    - peer4.org1.example.com:10.96.1.87
+    - peer5.org1.example.com:10.96.1.87
+    - peer6.org1.example.com:10.96.1.87
+    depends_on:
+    - couchdb0
+    networks:
+    - fabric_test
+  couchdb1:
+    image: couchdb:3.1.1
+    environment:
+    - COUCHDB_USER=admin
+    - COUCHDB_PASSWORD=adminpw
+    ports:
+    - 6984:5984
+    networks:
+    - fabric_test
+  peer1.org1.example.com:
+    container_name: peer1.org1.example.com
+    image: hyperledger/fabric-peer:latest
+    environment:
+    - CORE_VM_ENDPOINT=unix:///host/var/run/docker.sock
+    - CORE_VM_DOCKER_HOSTCONFIG_NETWORKMODE=fabric_test
+    - CORE_PEER_ID=peer1.org1.example.com
+    - CORE_PEER_ADDRESS=peer1.org1.example.com:8051
+    - CORE_PEER_LISTENADDRESS=0.0.0.0:8051
+    - CORE_PEER_CHAINCODELISTENADDRESS=0.0.0.0:8052
+    - CORE_PEER_GOSSIP_BOOTSTRAP=peer0.org1.example.com:7051
+    - CORE_PEER_GOSSIP_EXTERNALENDPOINT=peer1.org1.example.com:8051
+    - CORE_PEER_LOCALMSPID=Org1MSP
+    - CORE_LEDGER_STATE_STATEDATABASE=CouchDB
+    - CORE_LEDGER_STATE_COUCHDBCONFIG_COUCHDBADDRESS=couchdb1:5984
+    - CORE_LEDGER_STATE_COUCHDBCONFIG_USERNAME=admin
+    - CORE_LEDGER_STATE_COUCHDBCONFIG_PASSWORD=adminpw
+    - EXPERIMENTAL_SHARDING_ENABLED=true
+    - CORE_PEER_TLS_ENABLED=true
+    - CORE_PEER_TLS_CERT_FILE=/etc/hyperledger/fabric/tls/server.crt
+    - CORE_PEER_TLS_KEY_FILE=/etc/hyperledger/fabric/tls/server.key
+    - CORE_PEER_TLS_ROOTCERT_FILE=/etc/hyperledger/fabric/tls/ca.crt
+    - CORE_PEER_MSPCONFIGPATH=/etc/hyperledger/fabric/msp
+    volumes:
+    - /var/run/docker.sock:/host/var/run/docker.sock
+    - peer1.org1.example.com:/var/hyperledger/production
+    - ./sharding.json:/opt/gopath/src/github.com/hyperledger/fabric/peer/sharding.json:ro
+    - ./crypto-config/peerOrganizations/org1.example.com/peers/peer1.org1.example.com/msp:/etc/hyperledger/fabric/msp
+    - ./crypto-config/peerOrganizations/org1.example.com/peers/peer1.org1.example.com/tls:/etc/hyperledger/fabric/tls
+    - ../sampleconfig/core.yaml:/etc/hyperledger/fabric/core.yaml:ro
+    working_dir: /opt/gopath/src/github.com/hyperledger/fabric/peer
+    command: peer node start
+    ports:
+    - 8051:8051
+    - 8052:8052
+    - 28051:28051
+    extra_hosts:
+    - orderer.example.com:192.168.50.54
+    - peer0.org1.example.com:192.168.50.54
+    - peer1.org1.example.com:192.168.50.54
+    - peer2.org1.example.com:192.168.50.54
+    - peer3.org1.example.com:10.96.1.87
+    - peer4.org1.example.com:10.96.1.87
+    - peer5.org1.example.com:10.96.1.87
+    - peer6.org1.example.com:10.96.1.87
+    depends_on:
+    - couchdb1
+    networks:
+    - fabric_test
+  couchdb2:
+    image: couchdb:3.1.1
+    environment:
+    - COUCHDB_USER=admin
+    - COUCHDB_PASSWORD=adminpw
+    ports:
+    - 7984:5984
+    networks:
+    - fabric_test
+  peer2.org1.example.com:
+    container_name: peer2.org1.example.com
+    image: hyperledger/fabric-peer:latest
+    environment:
+    - CORE_VM_ENDPOINT=unix:///host/var/run/docker.sock
+    - CORE_VM_DOCKER_HOSTCONFIG_NETWORKMODE=fabric_test
+    - CORE_PEER_ID=peer2.org1.example.com
+    - CORE_PEER_ADDRESS=peer2.org1.example.com:9051
+    - CORE_PEER_LISTENADDRESS=0.0.0.0:9051
+    - CORE_PEER_CHAINCODELISTENADDRESS=0.0.0.0:9052
+    - CORE_PEER_GOSSIP_BOOTSTRAP=peer0.org1.example.com:7051
+    - CORE_PEER_GOSSIP_EXTERNALENDPOINT=peer2.org1.example.com:9051
+    - CORE_PEER_LOCALMSPID=Org1MSP
+    - CORE_LEDGER_STATE_STATEDATABASE=CouchDB
+    - CORE_LEDGER_STATE_COUCHDBCONFIG_COUCHDBADDRESS=couchdb2:5984
+    - CORE_LEDGER_STATE_COUCHDBCONFIG_USERNAME=admin
+    - CORE_LEDGER_STATE_COUCHDBCONFIG_PASSWORD=adminpw
+    - EXPERIMENTAL_SHARDING_ENABLED=true
+    - CORE_PEER_TLS_ENABLED=true
+    - CORE_PEER_TLS_CERT_FILE=/etc/hyperledger/fabric/tls/server.crt
+    - CORE_PEER_TLS_KEY_FILE=/etc/hyperledger/fabric/tls/server.key
+    - CORE_PEER_TLS_ROOTCERT_FILE=/etc/hyperledger/fabric/tls/ca.crt
+    - CORE_PEER_MSPCONFIGPATH=/etc/hyperledger/fabric/msp
+    volumes:
+    - /var/run/docker.sock:/host/var/run/docker.sock
+    - peer2.org1.example.com:/var/hyperledger/production
+    - ./sharding.json:/opt/gopath/src/github.com/hyperledger/fabric/peer/sharding.json:ro
+    - ./crypto-config/peerOrganizations/org1.example.com/peers/peer2.org1.example.com/msp:/etc/hyperledger/fabric/msp
+    - ./crypto-config/peerOrganizations/org1.example.com/peers/peer2.org1.example.com/tls:/etc/hyperledger/fabric/tls
+    - ../sampleconfig/core.yaml:/etc/hyperledger/fabric/core.yaml:ro
+    working_dir: /opt/gopath/src/github.com/hyperledger/fabric/peer
+    command: peer node start
+    ports:
+    - 9051:9051
+    - 9052:9052
+    - 29051:29051
+    extra_hosts:
+    - orderer.example.com:192.168.50.54
+    - peer0.org1.example.com:192.168.50.54
+    - peer1.org1.example.com:192.168.50.54
+    - peer2.org1.example.com:192.168.50.54
+    - peer3.org1.example.com:10.96.1.87
+    - peer4.org1.example.com:10.96.1.87
+    - peer5.org1.example.com:10.96.1.87
+    - peer6.org1.example.com:10.96.1.87
+    depends_on:
+    - couchdb2
+    networks:
+    - fabric_test
