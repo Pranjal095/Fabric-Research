@@ -21,6 +21,7 @@ type ShardManager struct {
 	shards        map[string]*ShardLeader
 	mainTransport *Transport
 	shardsLock    sync.RWMutex
+	transportLock sync.Mutex // Dedicated lock for transport initialization
 	config        map[string]ShardConfig
 	metrics       Metrics
 }
@@ -144,18 +145,23 @@ func (sm *ShardManager) GetOrCreateShard(contractName string) (*ShardLeader, err
 	}
 
 	if sm.mainTransport == nil {
-		peers := make(PeerConfig)
-		for i, addr := range config.ReplicaNodes {
-			peers[uint64(i+1)] = addr
-		}
+		sm.transportLock.Lock()
+		if sm.mainTransport == nil {
+			peers := make(PeerConfig)
+			for i, addr := range config.ReplicaNodes {
+				peers[uint64(i+1)] = addr
+			}
 
-		transport := NewTransport(config.ReplicaID, myAddr, peers)
-		if err := transport.Start(); err != nil {
-			shard.Stop()
-			return nil, fmt.Errorf("failed to start transport for shard %s: %v", contractName, err)
+			transport := NewTransport(config.ReplicaID, myAddr, peers)
+			if err := transport.Start(); err != nil {
+				sm.transportLock.Unlock()
+				shard.Stop()
+				return nil, fmt.Errorf("failed to start transport for shard %s: %v", contractName, err)
+			}
+			sm.mainTransport = transport
+			logger.Infof("Started lazy global gRPC transport securely at %s", myAddr)
 		}
-		sm.mainTransport = transport
-		logger.Infof("Started lazy global gRPC transport for ShardManager at %s", myAddr)
+		sm.transportLock.Unlock()
 	}
 
 	sm.mainTransport.RegisterShard(contractName, shard)
