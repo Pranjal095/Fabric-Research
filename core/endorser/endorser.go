@@ -402,10 +402,8 @@ func (e *Endorser) ProcessProposalSuccessfullyOrError(up *UnpackedProposal) (*pb
 		defer cancel()
 
 		for shardName, writeSet := range involvedShards {
-			// Defensive check in case the Endorser was initialized before ShardManager
 			if e.ShardManager == nil {
-				logger.Warningf("ShardManager is strangely nil! Initializing fallback ShardManager automatically.")
-				e.ShardManager = sharding.NewShardManager(nil, nil)
+				return nil, errors.New("Endorser ShardManager is not initialized")
 			}
 
 			shard, err := e.ShardManager.GetOrCreateShard(shardName)

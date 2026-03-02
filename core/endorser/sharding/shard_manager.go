@@ -8,7 +8,6 @@ package sharding
 
 import (
 	"encoding/json"
-	"fmt"
 	"os"
 	"sync"
 )
@@ -37,6 +36,49 @@ func NewShardManager(configs map[string]ShardConfig, metrics Metrics) *ShardMana
 		metrics: metrics,
 	}
 
+	// 1. Determine local address for the transport binding
+	myAddr := os.Getenv("CORE_PEER_ADDRESS")
+	if myAddr == "" {
+		myAddr = "localhost:7051"
+	}
+
+	// 2. Discover the global replica node list from any shard in sharding.json
+	// Since all shards share the same nodes in this architecture
+	var globalReplicas []string
+	if externalConfig, err := loadShardingConfig("sharding.json"); err == nil {
+		for _, replicas := range externalConfig {
+			globalReplicas = replicas
+			break
+		}
+	} else {
+		globalReplicas = []string{"localhost:7051", "localhost:7052", "localhost:7053"}
+	}
+
+	// 3. Determine Local Replica ID
+	var replicaID uint64 = 1
+	for i, nodeAddr := range globalReplicas {
+		if nodeAddr == myAddr {
+			replicaID = uint64(i + 1)
+			break
+		}
+	}
+
+	// 4. Create Peer map
+	peers := make(PeerConfig)
+	for i, addr := range globalReplicas {
+		peers[uint64(i+1)] = addr
+	}
+
+	// 5. Initialize the Multiplexed Transport
+	transport := NewTransport(replicaID, myAddr, peers)
+	if err := transport.Start(); err != nil {
+		logger.Errorf("Failed to start global shard transport: %v", err)
+	} else {
+		sm.mainTransport = transport
+		logger.Infof("Started global gRPC transport for ShardManager at %s (ReplicaID: %d)", myAddr, replicaID)
+	}
+
+	// 6. Pre-initialize any configured shards
 	for shardID, config := range configs {
 		shard, err := NewShardLeader(config, DefaultBatchTimeout, DefaultBatchMaxSize)
 		if err != nil {
@@ -100,24 +142,12 @@ func (sm *ShardManager) GetOrCreateShard(contractName string) (*ShardLeader, err
 		return nil, err
 	}
 
-	if sm.mainTransport == nil {
-		peers := make(PeerConfig)
-		for i, addr := range config.ReplicaNodes {
-			peers[uint64(i+1)] = addr
-		}
-
-		transport := NewTransport(config.ReplicaID, myAddr, peers)
-		if err := transport.Start(); err != nil {
-			shard.Stop()
-			return nil, fmt.Errorf("failed to start transport for shard %s: %v", contractName, err)
-		}
-		sm.mainTransport = transport
-		logger.Infof("Started global gRPC transport for ShardManager at %s", myAddr)
-	}
-
 	sm.mainTransport.RegisterShard(contractName, shard)
 
+	sm.shardsLock.Lock()
 	sm.shards[contractName] = shard
+	sm.shardsLock.Unlock()
+
 	logger.Infof("Created shard for contract %s with ReplicaID %d and hooked into multiplexed transport", contractName, config.ReplicaID)
 	return shard, nil
 }
