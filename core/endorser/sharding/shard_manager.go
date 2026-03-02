@@ -8,6 +8,7 @@ package sharding
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"sync"
 )
@@ -18,6 +19,7 @@ type Metrics interface{}
 // ShardManager manages multiple contract shards
 type ShardManager struct {
 	shards     map[string]*ShardLeader
+	transports map[string]*Transport
 	shardsLock sync.RWMutex
 	config     map[string]ShardConfig
 	metrics    Metrics
@@ -30,9 +32,10 @@ func NewShardManager(configs map[string]ShardConfig, metrics Metrics) *ShardMana
 	}
 
 	sm := &ShardManager{
-		shards:  make(map[string]*ShardLeader),
-		config:  configs,
-		metrics: metrics,
+		shards:     make(map[string]*ShardLeader),
+		transports: make(map[string]*Transport),
+		config:     configs,
+		metrics:    metrics,
 	}
 
 	for shardID, config := range configs {
@@ -73,21 +76,16 @@ func (sm *ShardManager) GetOrCreateShard(contractName string) (*ShardLeader, err
 		ReplicaID:    1,
 	}
 
+	myAddr := os.Getenv("CORE_PEER_ADDRESS")
+	if myAddr == "" {
+		myAddr = "localhost:7051"
+	}
+
 	// Try to load from configuration file
-	// We look for 'sharding.json' in the current directory or config path
-	// Structure: {"fabcar": ["100.x.x.2:7051", "100.x.x.2:8051", "100.x.x.2:9051"]}
 	if externalConfig, err := loadShardingConfig("sharding.json"); err == nil {
 		if replicas, ok := externalConfig[contractName]; ok {
 			config.ReplicaNodes = replicas
 			logger.Infof("Loaded configuration for shard %s: %v", contractName, replicas)
-
-			// Determine our ID based on CORE_PEER_ADDRESS
-			// If we are one of the replicas, we need a unique ID (index + 1)
-			myAddr := os.Getenv("CORE_PEER_ADDRESS")
-			if myAddr == "" {
-				// Fallback or just assume first if testing locally without env
-				myAddr = "localhost:7051"
-			}
 
 			for i, nodeAddr := range replicas {
 				if nodeAddr == myAddr {
@@ -103,8 +101,21 @@ func (sm *ShardManager) GetOrCreateShard(contractName string) (*ShardLeader, err
 		return nil, err
 	}
 
+	peers := make(PeerConfig)
+	for i, addr := range config.ReplicaNodes {
+		peers[uint64(i+1)] = addr
+	}
+
+	// Create the gRPC Transport
+	transport := NewTransport(config.ReplicaID, myAddr, peers, shard)
+	if err := transport.Start(); err != nil {
+		shard.Stop()
+		return nil, fmt.Errorf("failed to start transport for shard %s: %v", contractName, err)
+	}
+
 	sm.shards[contractName] = shard
-	logger.Infof("Created shard for contract %s with ReplicaID %d", contractName, config.ReplicaID)
+	sm.transports[contractName] = transport
+	logger.Infof("Created shard for contract %s with ReplicaID %d and listening at %s", contractName, config.ReplicaID, myAddr)
 	return shard, nil
 }
 
