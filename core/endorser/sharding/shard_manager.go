@@ -8,6 +8,7 @@ package sharding
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"sync"
 )
@@ -142,11 +143,24 @@ func (sm *ShardManager) GetOrCreateShard(contractName string) (*ShardLeader, err
 		return nil, err
 	}
 
+	if sm.mainTransport == nil {
+		peers := make(PeerConfig)
+		for i, addr := range config.ReplicaNodes {
+			peers[uint64(i+1)] = addr
+		}
+
+		transport := NewTransport(config.ReplicaID, myAddr, peers)
+		if err := transport.Start(); err != nil {
+			shard.Stop()
+			return nil, fmt.Errorf("failed to start transport for shard %s: %v", contractName, err)
+		}
+		sm.mainTransport = transport
+		logger.Infof("Started lazy global gRPC transport for ShardManager at %s", myAddr)
+	}
+
 	sm.mainTransport.RegisterShard(contractName, shard)
 
-	sm.shardsLock.Lock()
 	sm.shards[contractName] = shard
-	sm.shardsLock.Unlock()
 
 	logger.Infof("Created shard for contract %s with ReplicaID %d and hooked into multiplexed transport", contractName, config.ReplicaID)
 	return shard, nil
