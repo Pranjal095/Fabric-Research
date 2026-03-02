@@ -45,9 +45,17 @@ func NewTransport(nodeID uint64, address string, peers PeerConfig, leader *Shard
 
 // Start starts the gRPC server and message consumer
 func (t *Transport) Start() error {
-	lis, err := net.Listen("tcp", t.address)
+	// Parse the port from t.address to bind to 0.0.0.0, because the container
+	// doesn't own the host's routable IP
+	_, port, err := net.SplitHostPort(t.address)
 	if err != nil {
-		return fmt.Errorf("failed to listen: %v", err)
+		return fmt.Errorf("failed to parse transport address %s: %v", t.address, err)
+	}
+
+	bindAddr := fmt.Sprintf("0.0.0.0:%s", port)
+	lis, err := net.Listen("tcp", bindAddr)
+	if err != nil {
+		return fmt.Errorf("failed to listen on %s: %v", bindAddr, err)
 	}
 
 	t.grpcServer = grpc.NewServer()
