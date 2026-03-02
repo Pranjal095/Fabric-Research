@@ -11,6 +11,7 @@ import (
 	"go.etcd.io/etcd/raft/v3/raftpb"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/metadata"
 )
 
 // PeerConfig maps NodeID to Address (host:port)
@@ -22,7 +23,8 @@ type Transport struct {
 	nodeID     uint64
 	address    string
 	peers      PeerConfig
-	leader     *ShardLeader
+	leaders    map[string]*ShardLeader
+	leadersMu  sync.RWMutex
 	grpcServer *grpc.Server
 	clients    map[uint64]protos.ShardCommunicationClient
 	clientConn map[uint64]*grpc.ClientConn
@@ -31,16 +33,24 @@ type Transport struct {
 }
 
 // NewTransport creates a new gRPC transport
-func NewTransport(nodeID uint64, address string, peers PeerConfig, leader *ShardLeader) *Transport {
+func NewTransport(nodeID uint64, address string, peers PeerConfig) *Transport {
 	return &Transport{
 		nodeID:     nodeID,
 		address:    address,
 		peers:      peers,
-		leader:     leader,
+		leaders:    make(map[string]*ShardLeader),
 		clients:    make(map[uint64]protos.ShardCommunicationClient),
 		clientConn: make(map[uint64]*grpc.ClientConn),
 		stopC:      make(chan struct{}),
 	}
+}
+
+// RegisterShard registers a shard leader with the transport
+func (t *Transport) RegisterShard(shardID string, leader *ShardLeader) {
+	t.leadersMu.Lock()
+	t.leaders[shardID] = leader
+	t.leadersMu.Unlock()
+	go t.consumeMessages(shardID, leader)
 }
 
 // Start starts the gRPC server and message consumer
@@ -68,9 +78,6 @@ func (t *Transport) Start() error {
 		}
 	}()
 
-	// Start message consumer
-	go t.consumeMessages()
-
 	return nil
 }
 
@@ -89,12 +96,30 @@ func (t *Transport) Stop() {
 
 // Step receives a message from a peer (gRPC handler)
 func (t *Transport) Step(ctx context.Context, req *protos.RaftMessageProto) (*protos.StepResponse, error) {
+	md, ok := metadata.FromIncomingContext(ctx)
+	shardID := ""
+	if ok && len(md["shard-id"]) > 0 {
+		shardID = md["shard-id"][0]
+	}
+
+	if shardID == "" {
+		return &protos.StepResponse{Success: false, Error: "missing shard-id in metadata"}, nil
+	}
+
+	t.leadersMu.RLock()
+	leader, exists := t.leaders[shardID]
+	t.leadersMu.RUnlock()
+
+	if !exists {
+		return &protos.StepResponse{Success: false, Error: fmt.Sprintf("shard %s not found on this node", shardID)}, nil
+	}
+
 	var msg raftpb.Message
 	if err := msg.Unmarshal(req.Data); err != nil {
 		return &protos.StepResponse{Success: false, Error: err.Error()}, nil
 	}
 
-	if err := t.leader.Step(ctx, msg); err != nil {
+	if err := leader.Step(ctx, msg); err != nil {
 		return &protos.StepResponse{Success: false, Error: err.Error()}, nil
 	}
 
@@ -102,12 +127,12 @@ func (t *Transport) Step(ctx context.Context, req *protos.RaftMessageProto) (*pr
 }
 
 // consumeMessages reads outgoing messages from ShardLeader and sends them
-func (t *Transport) consumeMessages() {
+func (t *Transport) consumeMessages(shardID string, leader *ShardLeader) {
 	for {
 		select {
-		case msgs := <-t.leader.MessagesC():
+		case msgs := <-leader.MessagesC():
 			for _, msg := range msgs {
-				go t.send(msg)
+				go t.send(shardID, msg)
 			}
 		case <-t.stopC:
 			return
@@ -116,7 +141,7 @@ func (t *Transport) consumeMessages() {
 }
 
 // send sends a single Raft message to a peer
-func (t *Transport) send(msg raftpb.Message) {
+func (t *Transport) send(shardID string, msg raftpb.Message) {
 	client, err := t.getClient(msg.To)
 	if err != nil {
 		logger.Errorf("Failed to get client for node %d: %v", msg.To, err)
@@ -135,6 +160,8 @@ func (t *Transport) send(msg raftpb.Message) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
+
+	ctx = metadata.AppendToOutgoingContext(ctx, "shard-id", shardID)
 
 	_, err = client.Step(ctx, req)
 	if err != nil {

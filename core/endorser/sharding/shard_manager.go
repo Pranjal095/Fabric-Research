@@ -18,11 +18,11 @@ type Metrics interface{}
 
 // ShardManager manages multiple contract shards
 type ShardManager struct {
-	shards     map[string]*ShardLeader
-	transports map[string]*Transport
-	shardsLock sync.RWMutex
-	config     map[string]ShardConfig
-	metrics    Metrics
+	shards        map[string]*ShardLeader
+	mainTransport *Transport
+	shardsLock    sync.RWMutex
+	config        map[string]ShardConfig
+	metrics       Metrics
 }
 
 // NewShardManager creates a shard manager
@@ -32,10 +32,9 @@ func NewShardManager(configs map[string]ShardConfig, metrics Metrics) *ShardMana
 	}
 
 	sm := &ShardManager{
-		shards:     make(map[string]*ShardLeader),
-		transports: make(map[string]*Transport),
-		config:     configs,
-		metrics:    metrics,
+		shards:  make(map[string]*ShardLeader),
+		config:  configs,
+		metrics: metrics,
 	}
 
 	for shardID, config := range configs {
@@ -101,21 +100,25 @@ func (sm *ShardManager) GetOrCreateShard(contractName string) (*ShardLeader, err
 		return nil, err
 	}
 
-	peers := make(PeerConfig)
-	for i, addr := range config.ReplicaNodes {
-		peers[uint64(i+1)] = addr
+	if sm.mainTransport == nil {
+		peers := make(PeerConfig)
+		for i, addr := range config.ReplicaNodes {
+			peers[uint64(i+1)] = addr
+		}
+
+		transport := NewTransport(config.ReplicaID, myAddr, peers)
+		if err := transport.Start(); err != nil {
+			shard.Stop()
+			return nil, fmt.Errorf("failed to start transport for shard %s: %v", contractName, err)
+		}
+		sm.mainTransport = transport
+		logger.Infof("Started global gRPC transport for ShardManager at %s", myAddr)
 	}
 
-	// Create the gRPC Transport
-	transport := NewTransport(config.ReplicaID, myAddr, peers, shard)
-	if err := transport.Start(); err != nil {
-		shard.Stop()
-		return nil, fmt.Errorf("failed to start transport for shard %s: %v", contractName, err)
-	}
+	sm.mainTransport.RegisterShard(contractName, shard)
 
 	sm.shards[contractName] = shard
-	sm.transports[contractName] = transport
-	logger.Infof("Created shard for contract %s with ReplicaID %d and listening at %s", contractName, config.ReplicaID, myAddr)
+	logger.Infof("Created shard for contract %s with ReplicaID %d and hooked into multiplexed transport", contractName, config.ReplicaID)
 	return shard, nil
 }
 
@@ -138,6 +141,11 @@ func loadShardingConfig(path string) (map[string][]string, error) {
 func (sm *ShardManager) Shutdown() {
 	sm.shardsLock.Lock()
 	defer sm.shardsLock.Unlock()
+
+	if sm.mainTransport != nil {
+		logger.Infof("Stopping global shard transport")
+		sm.mainTransport.Stop()
+	}
 
 	for shardID, shard := range sm.shards {
 		logger.Infof("Stopping shard %s", shardID)
