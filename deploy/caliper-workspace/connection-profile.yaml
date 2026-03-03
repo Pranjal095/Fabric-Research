@@ -2,6 +2,8 @@ name: "Fabric-CCP"
 version: "1.0.0"
 channels:
   mychannel:
+    orderers:
+      - orderer.example.com
     peers:
       peer0.org1.example.com:
         endorsingPeer: true
