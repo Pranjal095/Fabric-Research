@@ -88,8 +88,8 @@ func NewShardLeader(config ShardConfig, batchTimeout time.Duration, maxBatchSize
 
 	c := &raft.Config{
 		ID:              config.ReplicaID,
-		ElectionTick:    50, // Increase to 50 * 100ms = 5 seconds
-		HeartbeatTick:   5,  // Increase to 5 * 100ms = 0.5 seconds
+		ElectionTick:    100, // 100 * 100ms = 10 seconds
+		HeartbeatTick:   5,   // 5 * 100ms = 0.5 seconds
 		Storage:         storage,
 		MaxSizePerMsg:   1024 * 1024,
 		MaxInflightMsgs: 256,
@@ -116,7 +116,7 @@ func NewShardLeader(config ShardConfig, batchTimeout time.Duration, maxBatchSize
 		subscribers:   make(map[string]chan *PrepareProof),
 		errorC:        make(chan error, 10),
 		stopC:         make(chan struct{}),
-		messagesC:     make(chan []raftpb.Message, 100),
+		messagesC:     make(chan []raftpb.Message, 1000),
 	}
 
 	go sl.runRaft()
@@ -144,8 +144,8 @@ func (sl *ShardLeader) runRaft() {
 			if len(rd.Messages) > 0 {
 				select {
 				case sl.messagesC <- rd.Messages:
-				case <-sl.stopC:
-					return
+				default:
+					logger.Warnf("Shard %s: messagesC full, dropping %d Raft messages (will be retransmitted)", sl.shardID, len(rd.Messages))
 				}
 			}
 
