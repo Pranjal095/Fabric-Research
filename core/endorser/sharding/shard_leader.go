@@ -74,11 +74,11 @@ type ShardLeader struct {
 	maxBatchSize    int
 	lastBatchTime   time.Time
 	proposeC        chan *PrepareRequest
-	commitC         chan *PrepareProof
+	subscribers     map[string]chan *PrepareProof
 	errorC          chan error
 	stopC           chan struct{}
 	messagesC       chan []raftpb.Message
-	requestsHandled int64
+	requestsHandled uint64
 	mu              sync.RWMutex
 }
 
@@ -113,7 +113,7 @@ func NewShardLeader(config ShardConfig, batchTimeout time.Duration, maxBatchSize
 		maxBatchSize:  maxBatchSize,
 		lastBatchTime: time.Now(),
 		proposeC:      make(chan *PrepareRequest, 1000),
-		commitC:       make(chan *PrepareProof, 1000),
+		subscribers:   make(map[string]chan *PrepareProof),
 		errorC:        make(chan error, 10),
 		stopC:         make(chan struct{}),
 		messagesC:     make(chan []raftpb.Message, 100),
@@ -266,11 +266,17 @@ func (sl *ShardLeader) applyEntry(entry raftpb.Entry) {
 
 		sl.updateDependencyMap(reqProto, hasDependency, dependentTxID, entry.Index)
 
-		select {
-		case sl.commitC <- proof:
-			logger.Debugf("Shard %s: Sent proof for tx %s at index %d", sl.shardID, reqProto.TxID, entry.Index)
-		default:
-			logger.Warnf("Commit channel full for shard %s", sl.shardID)
+		sl.mu.RLock()
+		ch, exists := sl.subscribers[reqProto.TxID]
+		sl.mu.RUnlock()
+
+		if exists {
+			select {
+			case ch <- proof:
+				logger.Debugf("Shard %s: Sent proof for tx %s at index %d", sl.shardID, reqProto.TxID, entry.Index)
+			default:
+				logger.Warnf("Commit channel full for tx %s in shard %s", reqProto.TxID, sl.shardID)
+			}
 		}
 
 		sl.mu.Lock()
@@ -357,13 +363,27 @@ func (sl *ShardLeader) ProposeC() chan<- *PrepareRequest {
 	return sl.proposeC
 }
 
-// CommitC returns the commit channel
-func (sl *ShardLeader) CommitC() <-chan *PrepareProof {
-	return sl.commitC
+// Subscribe provides a one-time channel for a specific transaction's proof
+func (sl *ShardLeader) Subscribe(txID string) <-chan *PrepareProof {
+	sl.mu.Lock()
+	defer sl.mu.Unlock()
+	ch := make(chan *PrepareProof, 1)
+	sl.subscribers[txID] = ch
+	return ch
+}
+
+// Unsubscribe removes a subscription, usually called on context timeout
+func (sl *ShardLeader) Unsubscribe(txID string) {
+	sl.mu.Lock()
+	defer sl.mu.Unlock()
+	if ch, exists := sl.subscribers[txID]; exists {
+		close(ch)
+		delete(sl.subscribers, txID)
+	}
 }
 
 // GetRequestsHandled returns the number of requests handled
-func (sl *ShardLeader) GetRequestsHandled() int64 {
+func (sl *ShardLeader) GetRequestsHandled() uint64 {
 	sl.mu.RLock()
 	defer sl.mu.RUnlock()
 	return sl.requestsHandled

@@ -436,8 +436,11 @@ func (e *Endorser) ProcessProposalSuccessfullyOrError(up *UnpackedProposal) (*pb
 					return
 				}
 
+				commitC := s.Subscribe(up.ChannelHeader.TxId)
+				defer s.Unsubscribe(up.ChannelHeader.TxId)
+
 				select {
-				case proof := <-s.CommitC():
+				case proof := <-commitC:
 					if !e.verifyProof(proof) {
 						mu.Lock()
 						shardErrors = append(shardErrors, fmt.Errorf("invalid proof from shard %s", sName))

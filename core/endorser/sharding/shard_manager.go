@@ -226,7 +226,7 @@ func (sm *ShardManager) GetShardMetrics() map[string]int64 {
 
 	metrics := make(map[string]int64)
 	for shardID, shard := range sm.shards {
-		metrics[shardID] = shard.GetRequestsHandled()
+		metrics[shardID] = int64(shard.GetRequestsHandled())
 	}
 
 	return metrics
