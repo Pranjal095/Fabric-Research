@@ -46,19 +46,26 @@ for PORT in $PEER_PORTS; do
 done
 
 echo ""
+SHARDS=("fabcar" "marbles" "smallbank" "asset-transfer-basic" "token-erc20" "commercial-paper" "auction")
+
 if [ "$IS_SERVER_1" = true ]; then
     echo "=== Packaging Cross-Shard Chaincode ==="
     cd chaincode/cross_shard
     go mod tidy
     go mod vendor
     cd ../..
-    ../build/bin/peer lifecycle chaincode package cross_shard.tar.gz --path ./chaincode/cross_shard --lang golang --label cross_shard_1.0
+    
+    for CC_NAME in "${SHARDS[@]}"; do
+        ../build/bin/peer lifecycle chaincode package ${CC_NAME}.tar.gz --path ./chaincode/cross_shard --lang golang --label ${CC_NAME}_1.0
+    done
 else
     echo "=== Using Sync'd Cross-Shard Chaincode ==="
-    if [ ! -f "cross_shard.tar.gz" ]; then
-        echo "ERROR: cross_shard.tar.gz not found! You must sync it from Server 1."
-        exit 1
-    fi
+    for CC_NAME in "${SHARDS[@]}"; do
+        if [ ! -f "${CC_NAME}.tar.gz" ]; then
+            echo "ERROR: ${CC_NAME}.tar.gz not found! You must sync it from Server 1."
+            exit 1
+        fi
+    done
 fi
 
 for PORT in $PEER_PORTS; do
@@ -67,7 +74,10 @@ for PORT in $PEER_PORTS; do
     export CORE_PEER_ADDRESS=localhost:$PORT
     export CORE_PEER_TLS_SERVERHOSTOVERRIDE=peer${INDEX}.org1.example.com
     export CORE_PEER_TLS_ROOTCERT_FILE=$PWD/crypto-config/peerOrganizations/org1.example.com/peers/peer${INDEX}.org1.example.com/tls/ca.crt
-    ../build/bin/peer lifecycle chaincode install cross_shard.tar.gz || true
+    
+    for CC_NAME in "${SHARDS[@]}"; do
+        ../build/bin/peer lifecycle chaincode install ${CC_NAME}.tar.gz || true
+    done
 done
 
 if [ "$IS_SERVER_1" = true ]; then
@@ -76,19 +86,16 @@ if [ "$IS_SERVER_1" = true ]; then
     export CORE_PEER_TLS_SERVERHOSTOVERRIDE=peer${START_INDEX}.org1.example.com
     export CORE_PEER_TLS_ROOTCERT_FILE=$PWD/crypto-config/peerOrganizations/org1.example.com/peers/peer${START_INDEX}.org1.example.com/tls/ca.crt
     sleep 2
-    CC_PACKAGE_ID=$(../build/bin/peer lifecycle chaincode queryinstalled | grep "cross_shard_1.0" | grep -o 'cross_shard_1.0:[a-f0-9]*' | head -n 1)
-
-    if [ -z "$CC_PACKAGE_ID" ]; then
-        echo "Failed to extract accurate CC_PACKAGE_ID! Aborting."
-        exit 1
-    fi
-
-    echo "Extracted Package ID: $CC_PACKAGE_ID"
-
-    SHARDS=("fabcar" "marbles" "smallbank" "asset-transfer-basic" "token-erc20" "commercial-paper" "auction")
-
+    
     for CC_NAME in "${SHARDS[@]}"; do
-        echo "--- Approving $CC_NAME ---"
+        CC_PACKAGE_ID=$(../build/bin/peer lifecycle chaincode queryinstalled | grep "${CC_NAME}_1.0" | grep -o "${CC_NAME}_1.0:[a-f0-9]*" | head -n 1)
+
+        if [ -z "$CC_PACKAGE_ID" ]; then
+            echo "Failed to extract accurate CC_PACKAGE_ID for $CC_NAME! Aborting."
+            exit 1
+        fi
+
+        echo "--- Approving $CC_NAME ($CC_PACKAGE_ID) ---"
         ../build/bin/peer lifecycle chaincode approveformyorg -o 192.168.50.54:7050 \
             --ordererTLSHostnameOverride orderer.example.com --tls --cafile $ORDERER_TLS_CA \
             --channelID mychannel --name ${CC_NAME} --version 1.0 \
