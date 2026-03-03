@@ -271,12 +271,19 @@ func (sl *ShardLeader) applyEntry(entry raftpb.Entry) {
 		sl.mu.RUnlock()
 
 		if exists {
-			select {
-			case ch <- proof:
-				logger.Debugf("Shard %s: Sent proof for tx %s at index %d", sl.shardID, reqProto.TxID, entry.Index)
-			default:
-				logger.Warnf("Commit channel full for tx %s in shard %s", reqProto.TxID, sl.shardID)
-			}
+			func() {
+				defer func() {
+					if r := recover(); r != nil {
+						logger.Warnf("Shard %s: recovered from send on closed channel for tx %s", sl.shardID, reqProto.TxID)
+					}
+				}()
+				select {
+				case ch <- proof:
+					logger.Debugf("Shard %s: Sent proof for tx %s at index %d", sl.shardID, reqProto.TxID, entry.Index)
+				default:
+					logger.Warnf("Commit channel full for tx %s in shard %s", reqProto.TxID, sl.shardID)
+				}
+			}()
 		}
 
 		sl.mu.Lock()
@@ -376,10 +383,7 @@ func (sl *ShardLeader) Subscribe(txID string) <-chan *PrepareProof {
 func (sl *ShardLeader) Unsubscribe(txID string) {
 	sl.mu.Lock()
 	defer sl.mu.Unlock()
-	if ch, exists := sl.subscribers[txID]; exists {
-		close(ch)
-		delete(sl.subscribers, txID)
-	}
+	delete(sl.subscribers, txID)
 }
 
 // GetRequestsHandled returns the number of requests handled
