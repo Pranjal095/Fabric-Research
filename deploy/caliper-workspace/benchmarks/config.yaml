@@ -7,11 +7,11 @@ test:
   rounds:
     - label: "EXP 6 - Pcross 0.00"
       description: "0% Cross-Shard Probability"
-      txNumber: 1000
+      txNumber: 5000
       rateControl:
         type: fixed-load
         opts:
-          transactionLoad: 32
+          transactionLoad: 300
       workload:
         module: workload/cross_shard_load.js
         arguments:
@@ -19,39 +19,39 @@ test:
 
     - label: "EXP 6 - Pcross 0.10"
       description: "10% Cross-Shard Probability"
-      txNumber: 1000
+      txNumber: 5000
       rateControl:
         type: fixed-load
         opts:
-          transactionLoad: 32
+          transactionLoad: 300
+      workload:
+        module: workload/cross_shard_load.js
+        arguments:
+          pcross: 0.05
+
+    - label: "EXP 6 - Pcross 0.30"
+      description: "30% Cross-Shard Probability"
+      txNumber: 5000
+      rateControl:
+        type: fixed-load
+        opts:
+          transactionLoad: 300
       workload:
         module: workload/cross_shard_load.js
         arguments:
           pcross: 0.10
 
-    - label: "EXP 6 - Pcross 0.30"
-      description: "30% Cross-Shard Probability"
-      txNumber: 1000
-      rateControl:
-        type: fixed-load
-        opts:
-          transactionLoad: 32
-      workload:
-        module: workload/cross_shard_load.js
-        arguments:
-          pcross: 0.30
-
     - label: "EXP 6 - Pcross 0.50"
       description: "50% Cross-Shard Probability"
-      txNumber: 1000
+      txNumber: 5000
       rateControl:
         type: fixed-load
         opts:
-          transactionLoad: 32
+          transactionLoad: 300
       workload:
         module: workload/cross_shard_load.js
         arguments:
-          pcross: 0.50
+          pcross: 0.20
 
 observer:
   type: local
