@@ -16,6 +16,9 @@ caliper:
         timeout: 100000
       query:
         timeout: 100000
+      eventHandlerOptions:
+        commitTimeout: 300
+        endorseTimeout: 300
 
 channels:
   - channelName: mychannel
