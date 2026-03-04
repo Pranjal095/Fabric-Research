@@ -4,12 +4,14 @@ const { WorkloadModuleBase } = require('@hyperledger/caliper-core');
 
 /**
  * Workload module for simulating cross-shard transactions with configurable
- * key contention (hot keys) and cross-shard probability.
+ * key contention (dependency) and cross-shard probability.
  *
  * Parameters:
- *   pcross   - Probability [0,1] that a transaction is cross-shard (default: 0.10)
- *   hotKeys  - Number of shared keys in the pool (default: 10). Lower = more contention
- *              and deeper DAG levels. Higher = less contention, more parallelism.
+ *   pcross     - Probability [0,1] that a transaction is cross-shard (default: 0.10)
+ *   dependency - Probability [0,1] that a transaction uses a shared hot key,
+ *                creating read-write conflicts with other transactions (default: 0.40)
+ *   hotKeys    - Number of shared hot keys in the pool (default: 10).
+ *                Only used when a transaction is "dependent".
  */
 class CrossShardLoad extends WorkloadModuleBase {
 
@@ -18,6 +20,7 @@ class CrossShardLoad extends WorkloadModuleBase {
 
         this.txIndex = 0;
         this.pcross = this.roundArguments.pcross !== undefined ? this.roundArguments.pcross : 0.10;
+        this.dependency = this.roundArguments.dependency !== undefined ? this.roundArguments.dependency : 0.40;
         this.hotKeys = this.roundArguments.hotKeys !== undefined ? this.roundArguments.hotKeys : 10;
 
         // Define all active chaincodes as separate shards
@@ -39,9 +42,17 @@ class CrossShardLoad extends WorkloadModuleBase {
         const primaryShardIndex = Math.floor(Math.random() * this.shards.length);
         const primaryShard = this.shards[primaryShardIndex];
 
-        // Pick a HOT KEY from the shared pool — this creates contention and real dependencies
-        const hotKeyIndex = Math.floor(Math.random() * this.hotKeys);
-        const key = `hot_${hotKeyIndex}`;
+        // Determine key: dependent transactions use shared hot keys (creating conflicts),
+        // independent transactions use unique keys (no conflicts)
+        let key;
+        if (Math.random() < this.dependency) {
+            // DEPENDENT: pick from shared hot key pool — creates read-write conflicts
+            const hotKeyIndex = Math.floor(Math.random() * this.hotKeys);
+            key = `hot_${hotKeyIndex}`;
+        } else {
+            // INDEPENDENT: unique key — no conflicts possible
+            key = `uniq_${this.workerIndex}_${this.txIndex}`;
+        }
 
         // Determine if this transaction will be cross-shard based on pcross probability
         const isCrossShard = Math.random() < this.pcross;

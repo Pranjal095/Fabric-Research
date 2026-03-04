@@ -1,0 +1,100 @@
+test:
+  name: "EXP2 - Throughput vs Dependency Percentage"
+  description: "Varying dependency 0%-50%, txNumber=1000, pcross=0.10, Threads=32"
+  workers:
+    type: local
+    number: 32
+  rounds:
+    - label: "EXP2 - Dep 0%"
+      description: "0% dependency"
+      txNumber: 1000
+      rateControl:
+        type: fixed-load
+        opts:
+          transactionLoad: 100
+      workload:
+        module: workload/cross_shard_load.js
+        arguments:
+          pcross: 0.10
+          dependency: 0.00
+          hotKeys: 10
+
+    - label: "EXP2 - Dep 10%"
+      description: "10% dependency"
+      txNumber: 1000
+      rateControl:
+        type: fixed-load
+        opts:
+          transactionLoad: 100
+      workload:
+        module: workload/cross_shard_load.js
+        arguments:
+          pcross: 0.10
+          dependency: 0.10
+          hotKeys: 10
+
+    - label: "EXP2 - Dep 20%"
+      description: "20% dependency"
+      txNumber: 1000
+      rateControl:
+        type: fixed-load
+        opts:
+          transactionLoad: 100
+      workload:
+        module: workload/cross_shard_load.js
+        arguments:
+          pcross: 0.10
+          dependency: 0.20
+          hotKeys: 10
+
+    - label: "EXP2 - Dep 30%"
+      description: "30% dependency"
+      txNumber: 1000
+      rateControl:
+        type: fixed-load
+        opts:
+          transactionLoad: 100
+      workload:
+        module: workload/cross_shard_load.js
+        arguments:
+          pcross: 0.10
+          dependency: 0.30
+          hotKeys: 10
+
+    - label: "EXP2 - Dep 40%"
+      description: "40% dependency"
+      txNumber: 1000
+      rateControl:
+        type: fixed-load
+        opts:
+          transactionLoad: 100
+      workload:
+        module: workload/cross_shard_load.js
+        arguments:
+          pcross: 0.10
+          dependency: 0.40
+          hotKeys: 10
+
+    - label: "EXP2 - Dep 50%"
+      description: "50% dependency"
+      txNumber: 1000
+      rateControl:
+        type: fixed-load
+        opts:
+          transactionLoad: 100
+      workload:
+        module: workload/cross_shard_load.js
+        arguments:
+          pcross: 0.10
+          dependency: 0.50
+          hotKeys: 10
+
+observer:
+  type: local
+  interval: 1
+
+monitor:
+  type: docker
+  docker:
+    containers:
+      - all

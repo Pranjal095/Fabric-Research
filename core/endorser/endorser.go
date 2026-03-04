@@ -30,6 +30,7 @@ package endorser
 import (
 	"context"
 	"fmt"
+	"os"
 	"strconv"
 	"strings"
 	"sync"
@@ -362,8 +363,11 @@ func (e *Endorser) ProcessProposalSuccessfullyOrError(up *UnpackedProposal) (*pb
 	maxTerm := uint64(0)
 
 	// ===== SHARDED RAFT-BASED DEPENDENCY RESOLUTION =====
+	// Controlled by FABRIC_SHARDING_ENABLED env var. When disabled (or unset),
+	// the endorser behaves like vanilla Fabric with no dependency tracking.
+	shardingEnabled := os.Getenv("FABRIC_SHARDING_ENABLED") == "true"
 
-	if txParams.TXSimulator != nil && !e.Support.IsSysCC(up.ChaincodeName) {
+	if shardingEnabled && txParams.TXSimulator != nil && !e.Support.IsSysCC(up.ChaincodeName) {
 		// Extract transaction dependencies from simulation results
 		dependencies, err := e.extractTransactionDependencies(simulationResult)
 		if err != nil {

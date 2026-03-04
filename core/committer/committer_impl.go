@@ -8,6 +8,7 @@ package committer
 
 import (
 	// "fmt"
+	"os"
 	"strconv"
 	"strings"
 	"sync"
@@ -358,6 +359,12 @@ func NewLedgerCommitter(ledger PeerLedgerSupport) *LedgerCommitter {
 // CommitLegacy commits blocks atomically with private data
 func (lc *LedgerCommitter) CommitLegacy(blockAndPvtData *ledger.BlockAndPvtData, commitOpts *ledger.CommitOptions) error {
 	block := blockAndPvtData.Block
+
+	// When FABRIC_SHARDING_ENABLED is not "true", behave like vanilla Fabric:
+	// skip DAG processing and use standard MVCC validation.
+	if os.Getenv("FABRIC_SHARDING_ENABLED") != "true" {
+		return lc.legacyCommit(blockAndPvtData, commitOpts)
+	}
 
 	// 1. Construct a DAG for the block
 	dag, err := BuildDAGFromBlock(block)

@@ -1,0 +1,30 @@
+test:
+  name: "EXP3 - Throughput vs Threads (workers=32)"
+  description: "txNumber=1000, Dependency=40%, pcross=0.10, Workers=32"
+  workers:
+    type: local
+    number: 32
+  rounds:
+    - label: "EXP3 - 32 workers"
+      description: "1000 transactions, 40% dependency, 32 workers"
+      txNumber: 1000
+      rateControl:
+        type: fixed-load
+        opts:
+          transactionLoad: 100
+      workload:
+        module: workload/cross_shard_load.js
+        arguments:
+          pcross: 0.10
+          dependency: 0.40
+          hotKeys: 10
+
+observer:
+  type: local
+  interval: 1
+
+monitor:
+  type: docker
+  docker:
+    containers:
+      - all
