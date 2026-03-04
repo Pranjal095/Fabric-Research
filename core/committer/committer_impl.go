@@ -629,8 +629,18 @@ func (lc *LedgerCommitter) processBlockWithDAG(blockAndPvtData *ledger.BlockAndP
 	// Update the block metadata with our modified validation flags
 	metadata.Metadata[common.BlockMetadataIndex_TRANSACTIONS_FILTER] = txFilter
 
-	// Now commit the block with the updated validation flags
-	return lc.PeerLedgerSupport.CommitLegacy(blockAndPvtData, commitOpts)
+	// Now commit the block with the updated validation flags.
+	// Skip MVCC validation since the DAG has already ordered transactions
+	// to resolve read-write dependencies. Without this, Fabric's built-in
+	// MVCC validation would overwrite the DAG's carefully computed txFilter
+	// and reject transactions that the DAG has already ordered correctly.
+	dagCommitOpts := &ledger.CommitOptions{
+		SkipMVCCValidation: true,
+	}
+	if commitOpts != nil {
+		dagCommitOpts.FetchPvtDataFromLedger = commitOpts.FetchPvtDataFromLedger
+	}
+	return lc.PeerLedgerSupport.CommitLegacy(blockAndPvtData, dagCommitOpts)
 }
 
 // GetPvtDataAndBlockByNum retrieves private data and block for given sequence number

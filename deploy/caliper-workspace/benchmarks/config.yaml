@@ -16,7 +16,7 @@ test:
         module: workload/cross_shard_load.js
         arguments:
           pcross: 0.00
-          hotKeys: 10
+          hotKeys: 100
 
     - label: "Pcross 0.25 - Low contention"
       description: "25% cross-shard, 10 hot keys"
@@ -29,7 +29,7 @@ test:
         module: workload/cross_shard_load.js
         arguments:
           pcross: 0.25
-          hotKeys: 10
+          hotKeys: 100
 
     - label: "Pcross 0.50 - Medium contention"
       description: "50% cross-shard, 10 hot keys"
@@ -42,7 +42,7 @@ test:
         module: workload/cross_shard_load.js
         arguments:
           pcross: 0.50
-          hotKeys: 10
+          hotKeys: 100
 
     - label: "Pcross 0.75 - High contention"
       description: "75% cross-shard, 10 hot keys"
@@ -55,7 +55,7 @@ test:
         module: workload/cross_shard_load.js
         arguments:
           pcross: 0.75
-          hotKeys: 10
+          hotKeys: 100
 
     - label: "Pcross 1.00 - Full contention"
       description: "100% cross-shard, 10 hot keys"

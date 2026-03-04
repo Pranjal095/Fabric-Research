@@ -636,7 +636,12 @@ func (l *kvLedger) commit(pvtdataAndBlock *ledger.BlockAndPvtData, commitOpts *l
 	}
 
 	logger.Debugf("[%s] Validating state for block [%d]", l.ledgerID, blockNo)
-	appInitiatedPurgeUpdates, txstatsInfo, updateBatchBytes, err := l.txmgr.ValidateAndPrepare(pvtdataAndBlock, true)
+	doMVCCValidation := true
+	if commitOpts != nil && commitOpts.SkipMVCCValidation {
+		doMVCCValidation = false
+		logger.Infof("[%s] Skipping MVCC validation for block [%d] - DAG-based committer has already ordered transactions", l.ledgerID, blockNo)
+	}
+	appInitiatedPurgeUpdates, txstatsInfo, updateBatchBytes, err := l.txmgr.ValidateAndPrepare(pvtdataAndBlock, doMVCCValidation)
 	if err != nil {
 		return err
 	}

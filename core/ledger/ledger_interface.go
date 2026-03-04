@@ -425,6 +425,10 @@ type BlockPvtdata struct {
 // CommitOptions encapsulates options associated with a block commit.
 type CommitOptions struct {
 	FetchPvtDataFromLedger bool
+	// SkipMVCCValidation when true, the ledger will skip MVCC read-version
+	// validation during commit. This is used when the DAG-based committer has
+	// already validated and ordered transactions to resolve dependencies.
+	SkipMVCCValidation bool
 }
 
 // PvtCollFilter represents the set of the collection names (as keys of the map with value 'true')
