@@ -6,6 +6,8 @@ caliper:
   sutOptions:
     mutualTls: true
     useGateway: true
+    gateway:
+      eventStrategy: msp_any
     discovery:
       enabled: false
       asLocalhost: false
