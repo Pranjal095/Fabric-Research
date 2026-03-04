@@ -9,7 +9,6 @@ package sharding
 import (
 	"encoding/json"
 	"fmt"
-	"net"
 	"os"
 	"sync"
 )
@@ -61,12 +60,10 @@ func NewShardManager(configs map[string]ShardConfig, metrics Metrics) *ShardMana
 		globalReplicas = []string{"localhost:7051", "localhost:7052", "localhost:7053"}
 	}
 
-	// 3. Determine Local Replica ID
+	// 3. Determine Local Replica ID by matching full address (host:port)
 	var replicaID uint64 = 1
 	for i, nodeAddr := range globalReplicas {
-		_, configPort, _ := net.SplitHostPort(nodeAddr)
-		_, myPort, _ := net.SplitHostPort(myAddr)
-		if configPort == myPort {
+		if nodeAddr == myAddr {
 			replicaID = uint64(i + 1)
 			break
 		}
@@ -142,9 +139,7 @@ func (sm *ShardManager) GetOrCreateShard(contractName string) (*ShardLeader, err
 			logger.Infof("Loaded configuration for shard %s: %v", contractName, replicas)
 
 			for i, nodeAddr := range replicas {
-				_, configPort, _ := net.SplitHostPort(nodeAddr)
-				_, myPort, _ := net.SplitHostPort(myAddr)
-				if configPort == myPort {
+				if nodeAddr == myAddr {
 					config.ReplicaID = uint64(i + 1)
 					break
 				}
