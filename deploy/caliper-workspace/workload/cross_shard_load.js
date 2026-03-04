@@ -46,26 +46,42 @@ class CrossShardLoad extends WorkloadModuleBase {
         const primaryShard = this.shards[primaryShardIndex];
 
         // Determine if this transaction will be cross-shard based on pcross probability
-        let secondaryShard = null;
         const isCrossShard = Math.random() < this.pcross;
 
+        // Build the secondary shard list
+        const secondaryShards = [];
         if (isCrossShard) {
-            // Select a different shard for cross-chaincode mock state injection
-            let secondaryShardIndex = Math.floor(Math.random() * this.shards.length);
-            while (secondaryShardIndex === primaryShardIndex) {
-                secondaryShardIndex = Math.floor(Math.random() * this.shards.length);
+            const available = this.shards.filter((_, idx) => idx !== primaryShardIndex);
+            // Random number of secondary shards: 1 to all remaining (so 2 to 7 total shards)
+            const count = 1 + Math.floor(Math.random() * available.length);
+            // Shuffle and pick 'count' distinct shards
+            for (let i = available.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                [available[i], available[j]] = [available[j], available[i]];
             }
-            secondaryShard = this.shards[secondaryShardIndex];
+            for (let i = 0; i < count; i++) {
+                secondaryShards.push(available[i]);
+            }
+        }
+
+        const contractArguments = [
+            `key_${this.workerIndex}_${this.txIndex}`,
+            'value',
+        ];
+
+        // Append each secondary shard as a separate argument
+        if (secondaryShards.length > 0) {
+            for (const shard of secondaryShards) {
+                contractArguments.push(shard);
+            }
+        } else {
+            contractArguments.push(''); // No cross-shard
         }
 
         const args = {
             contractId: primaryShard,
             contractFunction: 'invoke',
-            contractArguments: [
-                `key_${this.workerIndex}_${this.txIndex}`,
-                'value',
-                secondaryShard ? secondaryShard : '' // Send secondary shard context if triggered
-            ],
+            contractArguments: contractArguments,
             readOnly: false
         };
 

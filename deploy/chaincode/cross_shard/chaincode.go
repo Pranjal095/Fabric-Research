@@ -33,12 +33,16 @@ func (t *CrossShardChaincode) Invoke(stub shim.ChaincodeStubInterface) pb.Respon
 	}
 
 	// Cross-shard secondary invocation logic based on Caliper workload
-	if len(args) >= 3 && args[2] != "" {
-		secondaryShard := args[2]
+	// Each arg from index 2 onward is a secondary shard to invoke
+	for i := 2; i < len(args); i++ {
+		if args[i] == "" {
+			continue
+		}
+		secondaryShard := args[i]
 		channelID := stub.GetChannelID()
 
-		// Invoke secondary shard (it is exact same chaincode so we call invoke)
-		response := stub.InvokeChaincode(secondaryShard, [][]byte{[]byte("invoke"), []byte("cross_" + primaryKey), []byte(value)}, channelID)
+		// Invoke secondary shard
+		response := stub.InvokeChaincode(secondaryShard, [][]byte{[]byte("invoke"), []byte(fmt.Sprintf("cross_%d_%s", i-1, primaryKey)), []byte(value)}, channelID)
 
 		if response.Status != shim.OK {
 			return shim.Error(fmt.Sprintf("Failed to invoke cross-shard chaincode %s: %s", secondaryShard, response.Message))
