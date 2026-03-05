@@ -284,14 +284,17 @@ func BuildDAGFromBlock(block *common.Block) (*TransactionDAG, error) {
 			}
 
 			// Extract dependency information from the response message
-			if chaincodeAction.Response != nil && chaincodeAction.Response.Message != "" {
-				hasDependency, dependentTxID, _, err = ParseDependencyInfo(chaincodeAction.Response.Message)
-				if err != nil {
-					logger.Warningf("Failed to parse dependency info for tx %s: %s", txID, err)
-					continue
-				}
-				if hasDependency {
-					break
+			if chaincodeAction.Response != nil {
+				logger.Infof("Tx [%s] Action Response Message: '%s'", txID, chaincodeAction.Response.Message)
+				if chaincodeAction.Response.Message != "" {
+					hasDependency, dependentTxID, _, err = ParseDependencyInfo(chaincodeAction.Response.Message)
+					if err != nil {
+						logger.Warningf("Failed to parse dependency info for tx %s: %s", txID, err)
+						continue
+					}
+					if hasDependency {
+						break
+					}
 				}
 			}
 		}
