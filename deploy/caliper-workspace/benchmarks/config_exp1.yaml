@@ -9,9 +9,9 @@ test:
       description: "1000 transactions"
       txNumber: 1000
       rateControl:
-        type: fixed-load
+        type: fixed-rate
         opts:
-          transactionLoad: 500
+          tps: 200
       workload:
         module: workload/cross_shard_load.js
         arguments:
@@ -23,9 +23,9 @@ test:
       description: "2000 transactions"
       txNumber: 2000
       rateControl:
-        type: fixed-load
+        type: fixed-rate
         opts:
-          transactionLoad: 500
+          tps: 200
       workload:
         module: workload/cross_shard_load.js
         arguments:
@@ -37,9 +37,9 @@ test:
       description: "3000 transactions"
       txNumber: 3000
       rateControl:
-        type: fixed-load
+        type: fixed-rate
         opts:
-          transactionLoad: 500
+          tps: 200
       workload:
         module: workload/cross_shard_load.js
         arguments:
@@ -51,9 +51,9 @@ test:
       description: "4000 transactions"
       txNumber: 4000
       rateControl:
-        type: fixed-load
+        type: fixed-rate
         opts:
-          transactionLoad: 500
+          tps: 200
       workload:
         module: workload/cross_shard_load.js
         arguments:
@@ -65,9 +65,9 @@ test:
       description: "5000 transactions"
       txNumber: 5000
       rateControl:
-        type: fixed-load
+        type: fixed-rate
         opts:
-          transactionLoad: 500
+          tps: 200
       workload:
         module: workload/cross_shard_load.js
         arguments:
