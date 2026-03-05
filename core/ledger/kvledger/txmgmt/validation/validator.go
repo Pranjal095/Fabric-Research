@@ -7,6 +7,8 @@ SPDX-License-Identifier: Apache-2.0
 package validation
 
 import (
+	"sync"
+
 	"github.com/hyperledger/fabric-protos-go/ledger/rwset/kvrwset"
 	"github.com/hyperledger/fabric-protos-go/peer"
 	"github.com/hyperledger/fabric/core/ledger/internal/version"
@@ -78,7 +80,7 @@ func (v *validator) preLoadCommittedVersionOfRSet(blk *block) error {
 }
 
 // validateAndPrepareBatch performs validation and prepares the batch for final writes
-func (v *validator) validateAndPrepareBatch(blk *block, doMVCCValidation bool) (*publicAndHashUpdates, []*AppInitiatedPurgeUpdate, error) {
+func (v *validator) validateAndPrepareBatch(blk *block, doMVCCValidation bool, dagLevels ...map[int][]int) (*publicAndHashUpdates, []*AppInitiatedPurgeUpdate, error) {
 	// Check whether statedb implements BulkOptimizable interface. For now,
 	// only CouchDB implements BulkOptimizable to reduce the number of REST
 	// API calls from peer to CouchDB instance.
@@ -92,26 +94,143 @@ func (v *validator) validateAndPrepareBatch(blk *block, doMVCCValidation bool) (
 	updates := newPubAndHashUpdates()
 	purgeTracker := newPvtdataPurgeTracker()
 
+	// Build a map from block index to internal tx for fast lookup
+	txByBlockIndex := make(map[int]*transaction)
 	for _, tx := range blk.txs {
-		var validationCode peer.TxValidationCode
-		var err error
-		if validationCode, err = v.validateEndorserTX(tx.rwset, doMVCCValidation, updates); err != nil {
-			return nil, nil, err
+		txByBlockIndex[tx.indexInBlock] = tx
+	}
+
+	// Check if we have DAG level info for parallel processing
+	var levels map[int][]int
+	if len(dagLevels) > 0 {
+		levels = dagLevels[0]
+	}
+
+	if levels != nil && !doMVCCValidation && len(levels) > 0 {
+		// DAG-parallel path: process transactions level-by-level,
+		// parallelizing applyWriteSet within each level.
+		// This is safe because the DAG guarantees no R/W set overlap
+		// between transactions at the same level.
+		maxLevel := -1
+		for level := range levels {
+			if level > maxLevel {
+				maxLevel = level
+			}
 		}
 
-		tx.validationCode = validationCode
-		if validationCode == peer.TxValidationCode_VALID {
-			logger.Debugf("Block [%d] Transaction index [%d] TxId [%s] marked as valid by state validator. ContainsPostOrderWrites [%t]", blk.num, tx.indexInBlock, tx.id, tx.containsPostOrderWrites)
+		logger.Infof("DAG-parallel validation: processing %d levels for block [%d]", maxLevel+1, blk.num)
 
-			committingTxHeight := version.NewHeight(blk.num, uint64(tx.indexInBlock))
-			if err := updates.applyWriteSet(tx.rwset, committingTxHeight, v.db, tx.containsPostOrderWrites); err != nil {
+		for level := 0; level <= maxLevel; level++ {
+			txIndices, exists := levels[level]
+			if !exists {
+				continue
+			}
+
+			// Collect valid transactions at this level
+			type validTx struct {
+				tx     *transaction
+				height *version.Height
+			}
+			var validTxs []validTx
+
+			for _, idx := range txIndices {
+				tx, ok := txByBlockIndex[idx]
+				if !ok {
+					continue // tx was filtered out during preprocessing (already marked invalid)
+				}
+
+				var validationCode peer.TxValidationCode
+				var err error
+				if validationCode, err = v.validateEndorserTX(tx.rwset, false, updates); err != nil {
+					return nil, nil, err
+				}
+				tx.validationCode = validationCode
+				if validationCode == peer.TxValidationCode_VALID {
+					committingTxHeight := version.NewHeight(blk.num, uint64(tx.indexInBlock))
+					validTxs = append(validTxs, validTx{tx: tx, height: committingTxHeight})
+				} else {
+					logger.Warningf("Block [%d] Transaction index [%d] TxId [%s] marked as invalid by DAG-parallel validator. Reason code [%s]",
+						blk.num, tx.indexInBlock, tx.id, validationCode.String())
+				}
+			}
+
+			// Apply write sets in parallel for all valid transactions at this level
+			if len(validTxs) > 1 {
+				var wg sync.WaitGroup
+				errCh := make(chan error, len(validTxs))
+
+				for _, vt := range validTxs {
+					wg.Add(1)
+					go func(t *transaction, h *version.Height) {
+						defer wg.Done()
+						logger.Debugf("DAG level %d: parallel applyWriteSet for tx [%s] index [%d]",
+							level, t.id, t.indexInBlock)
+						if err := updates.applyWriteSet(t.rwset, h, v.db, t.containsPostOrderWrites); err != nil {
+							errCh <- err
+						}
+						purgeTracker.update(t.rwset, h)
+					}(vt.tx, vt.height)
+				}
+
+				wg.Wait()
+				close(errCh)
+				for err := range errCh {
+					if err != nil {
+						return nil, nil, err
+					}
+				}
+			} else if len(validTxs) == 1 {
+				// Single transaction at this level, no need for goroutine
+				vt := validTxs[0]
+				if err := updates.applyWriteSet(vt.tx.rwset, vt.height, v.db, vt.tx.containsPostOrderWrites); err != nil {
+					return nil, nil, err
+				}
+				purgeTracker.update(vt.tx.rwset, vt.height)
+			}
+		}
+
+		// Also process any transactions not covered by the DAG (e.g. config txs)
+		for _, tx := range blk.txs {
+			if tx.validationCode != peer.TxValidationCode(0) {
+				continue // already processed by DAG levels
+			}
+			var validationCode peer.TxValidationCode
+			var err error
+			if validationCode, err = v.validateEndorserTX(tx.rwset, false, updates); err != nil {
+				return nil, nil, err
+			}
+			tx.validationCode = validationCode
+			if validationCode == peer.TxValidationCode_VALID {
+				committingTxHeight := version.NewHeight(blk.num, uint64(tx.indexInBlock))
+				if err := updates.applyWriteSet(tx.rwset, committingTxHeight, v.db, tx.containsPostOrderWrites); err != nil {
+					return nil, nil, err
+				}
+				purgeTracker.update(tx.rwset, committingTxHeight)
+			}
+		}
+	} else {
+		// Original sequential path
+		for _, tx := range blk.txs {
+			var validationCode peer.TxValidationCode
+			var err error
+			if validationCode, err = v.validateEndorserTX(tx.rwset, doMVCCValidation, updates); err != nil {
 				return nil, nil, err
 			}
 
-			purgeTracker.update(tx.rwset, committingTxHeight)
-		} else {
-			logger.Warningf("Block [%d] Transaction index [%d] TxId [%s] marked as invalid by state validator. Reason code [%s]",
-				blk.num, tx.indexInBlock, tx.id, validationCode.String())
+			tx.validationCode = validationCode
+			if validationCode == peer.TxValidationCode_VALID {
+				logger.Debugf("Block [%d] Transaction index [%d] TxId [%s] marked as valid by state validator. ContainsPostOrderWrites [%t]", blk.num, tx.indexInBlock, tx.id, tx.containsPostOrderWrites)
+
+				committingTxHeight := version.NewHeight(blk.num, uint64(tx.indexInBlock))
+				if err := updates.applyWriteSet(tx.rwset, committingTxHeight, v.db, tx.containsPostOrderWrites); err != nil {
+					return nil, nil, err
+				}
+
+				purgeTracker.update(tx.rwset, committingTxHeight)
+			} else {
+				logger.Warningf("Block [%d] Transaction index [%d] TxId [%s] marked as invalid by state validator. Reason code [%s]",
+					blk.num, tx.indexInBlock, tx.id, validationCode.String())
+			}
 		}
 	}
 	return updates, purgeTracker.getUpdates(), nil

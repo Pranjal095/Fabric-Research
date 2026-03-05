@@ -429,6 +429,11 @@ type CommitOptions struct {
 	// validation during commit. This is used when the DAG-based committer has
 	// already validated and ordered transactions to resolve dependencies.
 	SkipMVCCValidation bool
+	// DAGLevels maps DAG level → list of transaction indices in the block.
+	// When set, the validator will process transactions level-by-level,
+	// parallelizing applyWriteSet within each level (safe because the DAG
+	// guarantees no R/W set overlap at the same level).
+	DAGLevels map[int][]int
 }
 
 // PvtCollFilter represents the set of the collection names (as keys of the map with value 'true')

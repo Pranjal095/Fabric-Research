@@ -167,6 +167,26 @@ func (dag *TransactionDAG) GetTransactionsByLevel() map[int][]string {
 	return levelMap
 }
 
+// GetLevelsByIndex returns DAG level → list of transaction block indices.
+// This is used to pass level information through CommitOptions so the
+// validator can parallelize applyWriteSet within each level.
+func (dag *TransactionDAG) GetLevelsByIndex() map[int][]int {
+	dag.mutex.RLock()
+	defer dag.mutex.RUnlock()
+
+	levelMap := make(map[int][]int)
+
+	for txID, level := range dag.Levels {
+		idx, exists := dag.TxIndices[txID]
+		if !exists {
+			continue
+		}
+		levelMap[level] = append(levelMap[level], idx)
+	}
+
+	return levelMap
+}
+
 // SetValidationResult sets the validation result for a transaction
 func (dag *TransactionDAG) SetValidationResult(txID string, isValid bool) {
 	dag.mutex.Lock()
@@ -641,8 +661,12 @@ func (lc *LedgerCommitter) processBlockWithDAG(blockAndPvtData *ledger.BlockAndP
 	// to resolve read-write dependencies. Without this, Fabric's built-in
 	// MVCC validation would overwrite the DAG's carefully computed txFilter
 	// and reject transactions that the DAG has already ordered correctly.
+	// Also pass DAG level information so the validator can parallelize
+	// applyWriteSet within each level (safe because DAG guarantees no
+	// R/W set overlap at the same level).
 	dagCommitOpts := &ledger.CommitOptions{
 		SkipMVCCValidation: true,
+		DAGLevels:          dag.GetLevelsByIndex(),
 	}
 	if commitOpts != nil {
 		dagCommitOpts.FetchPvtDataFromLedger = commitOpts.FetchPvtDataFromLedger

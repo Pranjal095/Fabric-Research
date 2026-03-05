@@ -165,7 +165,7 @@ func (txmgr *LockBasedTxMgr) NewTxSimulator(txid string) (ledger.TxSimulator, er
 }
 
 // ValidateAndPrepare implements method in interface `txmgmt.TxMgr`
-func (txmgr *LockBasedTxMgr) ValidateAndPrepare(blockAndPvtdata *ledger.BlockAndPvtData, doMVCCValidation bool) (
+func (txmgr *LockBasedTxMgr) ValidateAndPrepare(blockAndPvtdata *ledger.BlockAndPvtData, doMVCCValidation bool, opts ...*ledger.CommitOptions) (
 	[]*validation.AppInitiatedPurgeUpdate, []*validation.TxStatInfo, []byte, error,
 ) {
 	// Among ValidateAndPrepare(), PrepareForExpiringKeys(), and
@@ -186,7 +186,14 @@ func (txmgr *LockBasedTxMgr) ValidateAndPrepare(blockAndPvtdata *ledger.BlockAnd
 
 	block := blockAndPvtdata.Block
 	logger.Debugf("Validating new block with num trans = [%d]", len(block.Data.Data))
-	batch, appPurgeUpdates, txstatsInfo, err := txmgr.commitBatchPreparer.ValidateAndPrepareBatch(blockAndPvtdata, doMVCCValidation)
+
+	// Extract DAG levels from commit options if present
+	var dagLevels map[int][]int
+	if len(opts) > 0 && opts[0] != nil {
+		dagLevels = opts[0].DAGLevels
+	}
+
+	batch, appPurgeUpdates, txstatsInfo, err := txmgr.commitBatchPreparer.ValidateAndPrepareBatch(blockAndPvtdata, doMVCCValidation, dagLevels)
 	if err != nil {
 		txmgr.reset()
 		return nil, nil, nil, err

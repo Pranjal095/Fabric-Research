@@ -495,6 +495,13 @@ func (e *Endorser) ProcessProposalSuccessfullyOrError(up *UnpackedProposal) (*pb
 		}
 	}
 
+	// Include dependency and proof information in response message
+	// IMPORTANT: This MUST be set BEFORE serializing prpBytes, otherwise the
+	// ChaincodeAction.Response.Message in the block won't contain the dependency
+	// info, and BuildDAGFromBlock won't find any edges → flat DAG → no parallelism.
+	res.Message = fmt.Sprintf("%s; DependencyInfo:HasDependency=%v,DependentTxID=%s,ShardCommitIndex=%d,ProofTerm=%d",
+		res.Message, hasDependency, dependentTxID, maxCommitIndex, maxTerm)
+
 	prpBytes, err := protoutil.GetBytesProposalResponsePayload(up.ProposalHash, res, pubSimResBytes, cceventBytes, &pb.ChaincodeID{
 		Name:    up.ChaincodeName,
 		Version: cdLedger.Version,
@@ -532,10 +539,6 @@ func (e *Endorser) ProcessProposalSuccessfullyOrError(up *UnpackedProposal) (*pb
 		e.Metrics.EndorsementsFailed.With(meterLabels...).Add(1)
 		return nil, errors.WithMessage(err, "endorsing with plugin failed")
 	}
-
-	// Include dependency and proof information in response message
-	res.Message = fmt.Sprintf("%s; DependencyInfo:HasDependency=%v,DependentTxID=%s,ShardCommitIndex=%d,ProofTerm=%d",
-		res.Message, hasDependency, dependentTxID, maxCommitIndex, maxTerm)
 
 	return &pb.ProposalResponse{
 		Version:     1,

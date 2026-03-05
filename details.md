@@ -439,3 +439,91 @@ Independent transactions get a unique key → no conflicts possible.
 1. **Original Fabric**: `FABRIC_SHARDING_ENABLED` unset → rebuild peer → deploy → run Caliper
 2. **Proposed Fabric**: `FABRIC_SHARDING_ENABLED=true`, full cluster → run Caliper
 3. **Proposed-C1**: `FABRIC_SHARDING_ENABLED=true`, cluster size=1 in `sharding.json` → redeploy → run
+
+---
+
+## 11. Issue: Dependency Metadata Never Reaching the Block (Flat DAG)
+
+### Observation:
+Peer logs always showed `Processing block with DAG: 1 levels of transactions`, even when transactions had real dependencies. `BuildDAGFromBlock` found no edges → flat DAG → all transactions at Level 0 → no multi-level scheduling.
+
+### Root Cause:
+In `core/endorser/endorser.go`, the dependency info string was appended to `res.Message` **after** the `ChaincodeAction` payload (`prpBytes`) was already serialized:
+
+```
+Line 498 (old): prpBytes = serialize(res)         ← res.Message has NO dep info yet
+Line 537 (old): res.Message = "DependencyInfo:..." ← TOO LATE, payload already frozen
+```
+
+The block stores `prpBytes` (the inner payload). `BuildDAGFromBlock` reads `chaincodeAction.Response.Message` from this payload — which never contained the dependency string.
+
+### Fix:
+Moved the `res.Message` assignment to **before** `prpBytes` creation:
+
+```go
+// Line 502 (new): Set dependency info BEFORE serializing
+res.Message = fmt.Sprintf("%s; DependencyInfo:HasDependency=%v,DependentTxID=%s,ShardCommitIndex=%d,ProofTerm=%d",
+    res.Message, hasDependency, dependentTxID, maxCommitIndex, maxTerm)
+
+// Line 505 (new): Now prpBytes includes the dependency metadata
+prpBytes, err := protoutil.GetBytesProposalResponsePayload(...)
+```
+
+### Files Modified:
+- `core/endorser/endorser.go` — moved `res.Message` assignment before `GetBytesProposalResponsePayload`
+
+---
+
+## 12. Full DAG-Parallel State Commit (applyWriteSet Parallelization)
+
+### Observation:
+Even though `processBlockWithDAG` validated transactions in parallel per DAG level, the subsequent `ValidateAndPrepare` → `validator.validateAndPrepareBatch` applied state updates (`applyWriteSet`) **sequentially** for every transaction. This negated the DAG's parallelism benefits.
+
+### Root Cause:
+In `validator.go` (original code):
+```go
+for _, tx := range blk.txs {           // sequential loop
+    updates.applyWriteSet(tx.rwset, ...) // one at a time
+}
+```
+
+Since the DAG guarantees no R/W set overlap between transactions at the same level, these `applyWriteSet` calls can safely run in parallel within a level.
+
+### Fix — Threading DAG Levels Through the Pipeline:
+
+| File | Change |
+|------|--------|
+| `core/ledger/ledger_interface.go` | Added `DAGLevels map[int][]int` to `CommitOptions` |
+| `core/committer/committer_impl.go` | Added `GetLevelsByIndex()` helper; populates `DAGLevels` |
+| `core/ledger/kvledger/kv_ledger.go` | Passes `commitOpts` through to `txmgr.ValidateAndPrepare` |
+| `core/ledger/kvledger/txmgmt/txmgr/lockbased_txmgr.go` | Variadic `...CommitOptions` (backward-compatible with tests) |
+| `core/ledger/kvledger/txmgmt/validation/batch_preparer.go` | Threads `dagLevels` to validator |
+| `core/ledger/kvledger/txmgmt/validation/validator.go` | **Core**: parallel `applyWriteSet` per DAG level |
+
+### Parallel Path in `validator.go`:
+```go
+if dagLevels != nil && !doMVCCValidation {
+    for level := 0; level <= maxLevel; level++ {
+        txIndices := levels[level]
+        // Collect valid txs at this level
+        // Apply write sets in PARALLEL (goroutines + WaitGroup)
+        var wg sync.WaitGroup
+        for _, vt := range validTxs {
+            wg.Add(1)
+            go func(t *transaction, h *version.Height) {
+                defer wg.Done()
+                updates.applyWriteSet(t.rwset, h, v.db, t.containsPostOrderWrites)
+            }(vt.tx, vt.height)
+        }
+        wg.Wait() // finish level before proceeding to next
+    }
+} else {
+    // Original sequential path (for FABRIC_SHARDING_ENABLED=false)
+}
+```
+
+### Expected Behavior:
+- Peer logs: `DAG-parallel validation: processing N levels for block [X]`
+- Level 0 transactions (independent) → `applyWriteSet` runs concurrently
+- Level 1+ transactions (dependent) → run after their parent level completes
+- Falls back to sequential path when `FABRIC_SHARDING_ENABLED=false`
