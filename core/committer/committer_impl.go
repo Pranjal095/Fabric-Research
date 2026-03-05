@@ -258,8 +258,27 @@ func BuildDAGFromBlock(block *common.Block) (*TransactionDAG, error) {
 		dependentTxID := ""
 
 		for _, action := range tx.Actions {
+			// action.Payload is a ChaincodeActionPayload
+			cap := &peer.ChaincodeActionPayload{}
+			if err := proto.Unmarshal(action.Payload, cap); err != nil {
+				logger.Warningf("Failed to unmarshal chaincode action payload for tx %s: %s", txID, err)
+				continue
+			}
+
+			if cap.Action == nil || cap.Action.ProposalResponsePayload == nil {
+				continue
+			}
+
+			// ProposalResponsePayload contains the actual ChaincodeAction
+			prp := &peer.ProposalResponsePayload{}
+			if err := proto.Unmarshal(cap.Action.ProposalResponsePayload, prp); err != nil {
+				logger.Warningf("Failed to unmarshal proposal response payload for tx %s: %s", txID, err)
+				continue
+			}
+
+			// Finally, unmarshal the extension bytes into a ChaincodeAction
 			chaincodeAction := &peer.ChaincodeAction{}
-			if err := proto.Unmarshal(action.Payload, chaincodeAction); err != nil {
+			if err := proto.Unmarshal(prp.Extension, chaincodeAction); err != nil {
 				logger.Warningf("Failed to unmarshal chaincode action for tx %s: %s", txID, err)
 				continue
 			}
