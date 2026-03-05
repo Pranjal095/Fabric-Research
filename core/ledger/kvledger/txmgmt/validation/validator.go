@@ -109,8 +109,8 @@ func (v *validator) validateAndPrepareBatch(blk *block, doMVCCValidation bool, d
 	if levels != nil && !doMVCCValidation && len(levels) > 0 {
 		// DAG-parallel path: process transactions level-by-level,
 		// parallelizing applyWriteSet within each level.
-		// This is safe because the DAG guarantees no R/W set overlap
-		// between transactions at the same level.
+		// Each goroutine gets its own LOCAL batch to avoid concurrent map writes.
+		// After wg.Wait(), local batches are merged into the main 'updates'.
 		maxLevel := -1
 		for level := range levels {
 			if level > maxLevel {
@@ -154,33 +154,41 @@ func (v *validator) validateAndPrepareBatch(blk *block, doMVCCValidation bool, d
 				}
 			}
 
-			// Apply write sets in parallel for all valid transactions at this level
+			// Apply write sets in parallel for all valid transactions at this level.
+			// Each goroutine writes to its OWN local batch (thread-safe),
+			// then we merge results sequentially.
 			if len(validTxs) > 1 {
-				var wg sync.WaitGroup
-				errCh := make(chan error, len(validTxs))
+				type localResult struct {
+					localUpdates *publicAndHashUpdates
+					tx           *transaction
+					height       *version.Height
+					err          error
+				}
 
-				for _, vt := range validTxs {
+				results := make([]localResult, len(validTxs))
+				var wg sync.WaitGroup
+
+				for i, vt := range validTxs {
 					wg.Add(1)
-					go func(t *transaction, h *version.Height) {
+					go func(idx int, t *transaction, h *version.Height) {
 						defer wg.Done()
-						logger.Debugf("DAG level %d: parallel applyWriteSet for tx [%s] index [%d]",
-							level, t.id, t.indexInBlock)
-						if err := updates.applyWriteSet(t.rwset, h, v.db, t.containsPostOrderWrites); err != nil {
-							errCh <- err
-						}
-						purgeTracker.update(t.rwset, h)
-					}(vt.tx, vt.height)
+						localUp := newPubAndHashUpdates()
+						err := localUp.applyWriteSet(t.rwset, h, v.db, t.containsPostOrderWrites)
+						results[idx] = localResult{localUpdates: localUp, tx: t, height: h, err: err}
+					}(i, vt.tx, vt.height)
 				}
 
 				wg.Wait()
-				close(errCh)
-				for err := range errCh {
-					if err != nil {
-						return nil, nil, err
+
+				// Merge all local batches into the main updates (sequentially, safe)
+				for _, r := range results {
+					if r.err != nil {
+						return nil, nil, r.err
 					}
+					mergeUpdates(updates, r.localUpdates)
+					purgeTracker.update(r.tx.rwset, r.height)
 				}
 			} else if len(validTxs) == 1 {
-				// Single transaction at this level, no need for goroutine
 				vt := validTxs[0]
 				if err := updates.applyWriteSet(vt.tx.rwset, vt.height, v.db, vt.tx.containsPostOrderWrites); err != nil {
 					return nil, nil, err
@@ -189,7 +197,7 @@ func (v *validator) validateAndPrepareBatch(blk *block, doMVCCValidation bool, d
 			}
 		}
 
-		// Also process any transactions not covered by the DAG (e.g. config txs)
+		// Process any transactions not covered by the DAG (e.g. config txs)
 		for _, tx := range blk.txs {
 			if tx.validationCode != peer.TxValidationCode(0) {
 				continue // already processed by DAG levels

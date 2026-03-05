@@ -110,3 +110,37 @@ func (u *publicAndHashUpdates) applyWriteSet(
 	}
 	return nil
 }
+
+// mergeUpdates copies all entries from 'from' into 'to'.
+// This is used by the DAG-parallel path: each goroutine applies writes to
+// its own local publicAndHashUpdates, then this function merges the results into
+// the main batch. Called sequentially after wg.Wait(), so no locking needed.
+func mergeUpdates(to, from *publicAndHashUpdates) {
+	// Merge ContainsPostOrderWrites flag
+	to.publicUpdates.ContainsPostOrderWrites =
+		to.publicUpdates.ContainsPostOrderWrites || from.publicUpdates.ContainsPostOrderWrites
+
+	// Merge public updates
+	for _, ns := range from.publicUpdates.GetUpdatedNamespaces() {
+		for key, vv := range from.publicUpdates.GetUpdates(ns) {
+			if vv.Value == nil {
+				to.publicUpdates.Delete(ns, key, vv.Version)
+			} else {
+				to.publicUpdates.PutValAndMetadata(ns, key, vv.Value, vv.Metadata, vv.Version)
+			}
+		}
+	}
+
+	// Merge hash updates
+	for ns, nsBatch := range from.hashUpdates.UpdateMap {
+		for _, coll := range nsBatch.GetCollectionNames() {
+			for key, vv := range nsBatch.GetUpdates(coll) {
+				if vv.Value == nil {
+					to.hashUpdates.Delete(ns, coll, []byte(key), vv.Version)
+				} else {
+					to.hashUpdates.PutValHashAndMetadata(ns, coll, []byte(key), vv.Value, vv.Metadata, vv.Version)
+				}
+			}
+		}
+	}
+}
