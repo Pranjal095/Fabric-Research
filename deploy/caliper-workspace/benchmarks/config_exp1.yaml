@@ -11,7 +11,7 @@ test:
       rateControl:
         type: fixed-load
         opts:
-          transactionLoad: 500
+          transactionLoad: 250
       workload:
         module: workload/cross_shard_load.js
         arguments:
@@ -25,7 +25,7 @@ test:
       rateControl:
         type: fixed-load
         opts:
-          transactionLoad: 500
+          transactionLoad: 250
       workload:
         module: workload/cross_shard_load.js
         arguments:
@@ -39,7 +39,7 @@ test:
       rateControl:
         type: fixed-load
         opts:
-          transactionLoad: 500
+          transactionLoad: 250
       workload:
         module: workload/cross_shard_load.js
         arguments:
@@ -53,7 +53,7 @@ test:
       rateControl:
         type: fixed-load
         opts:
-          transactionLoad: 500
+          transactionLoad: 250
       workload:
         module: workload/cross_shard_load.js
         arguments:
@@ -67,7 +67,7 @@ test:
       rateControl:
         type: fixed-load
         opts:
-          transactionLoad: 500
+          transactionLoad: 250
       workload:
         module: workload/cross_shard_load.js
         arguments:
