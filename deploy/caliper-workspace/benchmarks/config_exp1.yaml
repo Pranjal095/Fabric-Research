@@ -19,6 +19,20 @@ test:
           dependency: 0.40
           hotKeys: 100
 
+    - label: "EXP1 - 1500 txns"
+      description: "1500 transactions"
+      txNumber: 1500
+      rateControl:
+        type: fixed-rate
+        opts:
+          tps: 200
+      workload:
+        module: workload/cross_shard_load.js
+        arguments:
+          pcross: 0.10
+          dependency: 0.40
+          hotKeys: 100
+
     - label: "EXP1 - 2000 txns"
       description: "2000 transactions"
       txNumber: 2000
@@ -33,37 +47,23 @@ test:
           dependency: 0.40
           hotKeys: 100
 
+    - label: "EXP1 - 2500 txns"
+      description: "2500 transactions"
+      txNumber: 2500
+      rateControl:
+        type: fixed-rate
+        opts:
+          tps: 200
+      workload:
+        module: workload/cross_shard_load.js
+        arguments:
+          pcross: 0.10
+          dependency: 0.40
+          hotKeys: 100
+
     - label: "EXP1 - 3000 txns"
       description: "3000 transactions"
       txNumber: 3000
-      rateControl:
-        type: fixed-rate
-        opts:
-          tps: 200
-      workload:
-        module: workload/cross_shard_load.js
-        arguments:
-          pcross: 0.10
-          dependency: 0.40
-          hotKeys: 100
-
-    - label: "EXP1 - 4000 txns"
-      description: "4000 transactions"
-      txNumber: 4000
-      rateControl:
-        type: fixed-rate
-        opts:
-          tps: 200
-      workload:
-        module: workload/cross_shard_load.js
-        arguments:
-          pcross: 0.10
-          dependency: 0.40
-          hotKeys: 100
-
-    - label: "EXP1 - 5000 txns"
-      description: "5000 transactions"
-      txNumber: 5000
       rateControl:
         type: fixed-rate
         opts:
