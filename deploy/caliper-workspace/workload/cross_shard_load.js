@@ -2,6 +2,11 @@
 
 const { WorkloadModuleBase } = require('@hyperledger/caliper-core');
 
+// Prevent MVCC unhandled promise rejections from the fabric SDK from crashing the worker
+process.on('unhandledRejection', (reason, promise) => {
+    console.warn('Unhandled Rejection (likely MVCC error), ignored to prevent crash:', reason.message || reason);
+});
+
 /**
  * Workload module for simulating cross-shard transactions with configurable
  * key contention (dependency) and cross-shard probability.
