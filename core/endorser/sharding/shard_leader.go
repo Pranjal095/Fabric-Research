@@ -20,7 +20,7 @@ import (
 var logger = flogging.MustGetLogger("endorser.sharding")
 
 const (
-	DefaultBatchMaxSize   = 50
+	DefaultBatchMaxSize   = 500
 	DefaultBatchTimeout   = 10 * time.Millisecond
 	DefaultExpiryDuration = 5 * time.Minute
 )
