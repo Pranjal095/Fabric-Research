@@ -51,12 +51,13 @@ type PrepareRequest struct {
 
 // PrepareProof represents a committed dependency entry
 type PrepareProof struct {
-	TxID        string
-	ShardID     string
-	CommitIndex uint64
-	LeaderID    uint64
-	Signature   []byte
-	Term        uint64
+	TxID          string
+	ShardID       string
+	CommitIndex   uint64
+	LeaderID      uint64
+	Signature     []byte
+	Term          uint64
+	DependentTxID string
 }
 
 // ShardLeader manages a Raft group for a specific contract
@@ -256,12 +257,13 @@ func (sl *ShardLeader) applyEntry(entry raftpb.Entry) {
 		hasDependency, dependentTxID := sl.checkDependencies(reqProto)
 
 		proof := &PrepareProof{
-			TxID:        reqProto.TxID,
-			ShardID:     sl.shardID,
-			CommitIndex: sl.commitIndex,
-			LeaderID:    sl.node.Status().Lead,
-			Term:        entry.Term,
-			Signature:   sl.signProof(reqProto.TxID, sl.commitIndex),
+			TxID:          reqProto.TxID,
+			ShardID:       sl.shardID,
+			CommitIndex:   sl.commitIndex,
+			LeaderID:      sl.node.Status().Lead,
+			Term:          entry.Term,
+			Signature:     sl.signProof(reqProto.TxID, sl.commitIndex),
+			DependentTxID: dependentTxID,
 		}
 
 		sl.updateDependencyMap(reqProto, hasDependency, dependentTxID, entry.Index)

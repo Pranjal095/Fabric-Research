@@ -460,6 +460,13 @@ func (e *Endorser) ProcessProposalSuccessfullyOrError(up *UnpackedProposal) (*pb
 						maxCommitIndex = proof.CommitIndex
 						maxTerm = proof.Term
 					}
+					if proof.DependentTxID != "" {
+						if dependentTxID == "" {
+							dependentTxID = proof.DependentTxID
+						} else if !strings.Contains(dependentTxID, proof.DependentTxID) {
+							dependentTxID = dependentTxID + "," + proof.DependentTxID
+						}
+					}
 					mu.Unlock()
 				case <-ctx.Done():
 					mu.Lock()
