@@ -77,17 +77,28 @@ func (dag *TransactionDAG) AddTransaction(txID string, txIndex int, hasDependenc
 		}
 	}
 
-	// If this transaction has a dependency, add the relationship
+	// If this transaction has a dependency, add the relationships
 	if hasDependency && dependentTxID != "" {
-		// Add dependentTxID to the list of dependencies
-		txDep := dag.Nodes[txID]
-		txDep.DependentTxIDs = append(txDep.DependentTxIDs, dependentTxID)
+		// Split by comma in case there are multiple dependencies
+		depIDs := strings.Split(dependentTxID, ",")
 
-		// Update the reverse dependency map
-		if _, exists := dag.Dependencies[dependentTxID]; !exists {
-			dag.Dependencies[dependentTxID] = []string{}
+		for _, depID := range depIDs {
+			// Clean up any potential whitespace
+			depID = strings.TrimSpace(depID)
+			if depID == "" {
+				continue
+			}
+
+			// Add depID to the list of dependencies for this transaction
+			txDep := dag.Nodes[txID]
+			txDep.DependentTxIDs = append(txDep.DependentTxIDs, depID)
+
+			// Update the reverse dependency map
+			if _, exists := dag.Dependencies[depID]; !exists {
+				dag.Dependencies[depID] = []string{}
+			}
+			dag.Dependencies[depID] = append(dag.Dependencies[depID], txID)
 		}
-		dag.Dependencies[dependentTxID] = append(dag.Dependencies[dependentTxID], txID)
 	}
 }
 
@@ -123,6 +134,12 @@ func (dag *TransactionDAG) CalculateLevels() {
 			maxDepLevel := -1
 
 			for _, depTxID := range node.DependentTxIDs {
+				// If the dependency is from a PREVIOUS block, it won't be in our DAG.
+				// We only care about ordering relative to transactions in the CURRENT block.
+				if _, nodeExistsInBlock := dag.Nodes[depTxID]; !nodeExistsInBlock {
+					continue // This dependency was already committed in a past block
+				}
+
 				if level, exists := dag.Levels[depTxID]; exists {
 					if level > maxDepLevel {
 						maxDepLevel = level
