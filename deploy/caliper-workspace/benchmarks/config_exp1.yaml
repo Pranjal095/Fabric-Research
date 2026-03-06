@@ -17,7 +17,7 @@ test:
         arguments:
           pcross: 0.10
           dependency: 0.40
-          hotKeys: 100
+          hotKeys: 2
 
     - label: "EXP1 - 2000 txns"
       description: "2000 transactions"
@@ -31,7 +31,7 @@ test:
         arguments:
           pcross: 0.10
           dependency: 0.40
-          hotKeys: 100
+          hotKeys: 2
 
     - label: "EXP1 - 3000 txns"
       description: "3000 transactions"
@@ -45,7 +45,7 @@ test:
         arguments:
           pcross: 0.10
           dependency: 0.40
-          hotKeys: 100
+          hotKeys: 2
 
     - label: "EXP1 - 4000 txns"
       description: "4000 transactions"
@@ -59,7 +59,7 @@ test:
         arguments:
           pcross: 0.10
           dependency: 0.40
-          hotKeys: 100
+          hotKeys: 2
 
     - label: "EXP1 - 5000 txns"
       description: "5000 transactions"
@@ -73,7 +73,7 @@ test:
         arguments:
           pcross: 0.10
           dependency: 0.40
-          hotKeys: 100
+          hotKeys: 2
 
 observer:
   type: local
