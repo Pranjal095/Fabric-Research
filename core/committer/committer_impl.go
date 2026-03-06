@@ -502,6 +502,11 @@ func (lc *LedgerCommitter) processBlockWithDAG(blockAndPvtData *ledger.BlockAndP
 				allDepsValid := true
 
 				for _, depTxID := range node.DependentTxIDs {
+					// Skip dependencies from previous blocks (they are already committed)
+					if _, exists := dag.Nodes[depTxID]; !exists {
+						continue
+					}
+
 					if !dag.IsValid(depTxID) {
 						// One of the dependencies is invalid, so this transaction is also invalid
 						allDepsValid = false
