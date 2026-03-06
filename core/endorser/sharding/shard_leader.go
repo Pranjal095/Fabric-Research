@@ -113,11 +113,11 @@ func NewShardLeader(config ShardConfig, batchTimeout time.Duration, maxBatchSize
 		batchTimeout:  batchTimeout,
 		maxBatchSize:  maxBatchSize,
 		lastBatchTime: time.Now(),
-		proposeC:      make(chan *PrepareRequest, 1000),
+		proposeC:      make(chan *PrepareRequest, 10000),
 		subscribers:   make(map[string]chan *PrepareProof),
 		errorC:        make(chan error, 10),
 		stopC:         make(chan struct{}),
-		messagesC:     make(chan []raftpb.Message, 1000),
+		messagesC:     make(chan []raftpb.Message, 10000),
 	}
 
 	go sl.runRaft()

@@ -56,7 +56,7 @@ import (
 var logger = flogging.MustGetLogger("endorser")
 
 const (
-	DefaultPrepareTimeout = 2000 * time.Millisecond
+	DefaultPrepareTimeout = 30000 * time.Millisecond
 )
 
 // TransactionDependencyInfo represents information about a transaction dependency
