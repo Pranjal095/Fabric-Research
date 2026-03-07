@@ -414,19 +414,24 @@ func (e *Endorser) ProcessProposalSuccessfullyOrError(up *UnpackedProposal) (*pb
 					Timestamp: time.Now(),
 				}
 
-				select {
-				case s.ProposeC() <- prepareReq:
-					logger.Debugf("Submitted prepare request for tx %s to shard %s", prepareReq.TxID, sName)
-				case <-ctx.Done():
-					mu.Lock()
-					shardErrors = append(shardErrors, fmt.Errorf("timeout submitting to shard %s", sName))
-					mu.Unlock()
-					return
-				}
-
+				// 1. Subscribe FIRST to ensure we don't miss the broadcast if we propose
 				commitC := s.Subscribe(up.ChannelHeader.TxId)
 				defer s.Unsubscribe(up.ChannelHeader.TxId, commitC)
 
+				// 2. Check if we even need to propose (prevents redundant Raft log entries)
+				if !s.HasProof(up.ChannelHeader.TxId) {
+					select {
+					case s.ProposeC() <- prepareReq:
+						logger.Debugf("Submitted prepare request for tx %s to shard %s", prepareReq.TxID, sName)
+					case <-ctx.Done():
+						mu.Lock()
+						shardErrors = append(shardErrors, fmt.Errorf("timeout submitting to shard %s", sName))
+						mu.Unlock()
+						return
+					}
+				}
+
+				// 3. Wait for the proof (or get it immediately if it was already cached in Subscribe)
 				select {
 				case proof := <-commitC:
 					if !e.verifyProof(proof) {

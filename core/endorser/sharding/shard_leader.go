@@ -80,6 +80,8 @@ type ShardLeader struct {
 	proposeC        chan *PrepareRequest
 	subscribers     map[string][]chan *PrepareProof
 	pendingTxIDs    map[string]bool
+	proofCache      map[string]*PrepareProof
+	proofCacheLock  sync.RWMutex
 	errorC          chan error
 	stopC           chan struct{}
 	messagesC       chan []raftpb.Message
@@ -120,6 +122,7 @@ func NewShardLeader(config ShardConfig, batchTimeout time.Duration, maxBatchSize
 		proposeC:      make(chan *PrepareRequest, 10000),
 		subscribers:   make(map[string][]chan *PrepareProof),
 		pendingTxIDs:  make(map[string]bool),
+		proofCache:    make(map[string]*PrepareProof),
 		errorC:        make(chan error, 10),
 		stopC:         make(chan struct{}),
 		messagesC:     make(chan []raftpb.Message, 10000),
@@ -127,6 +130,7 @@ func NewShardLeader(config ShardConfig, batchTimeout time.Duration, maxBatchSize
 
 	go sl.runRaft()
 	go sl.runBatcher()
+	go sl.runProofCleanup()
 
 	return sl, nil
 }
@@ -192,6 +196,27 @@ func (sl *ShardLeader) runBatcher() {
 		select {
 		case <-ticker.C:
 			sl.flushBatch()
+		case <-sl.stopC:
+			return
+		}
+	}
+}
+
+// runProofCleanup periodically removes expired proof entries
+func (sl *ShardLeader) runProofCleanup() {
+	ticker := time.NewTicker(10 * time.Minute)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ticker.C:
+			sl.proofCacheLock.Lock()
+			// Simple version: Clear cache if it gets too large (> 10000 entries)
+			if len(sl.proofCache) > 10000 {
+				logger.Infof("Shard %s: Clearing proof cache (%d entries)", sl.shardID, len(sl.proofCache))
+				sl.proofCache = make(map[string]*PrepareProof)
+			}
+			sl.proofCacheLock.Unlock()
 		case <-sl.stopC:
 			return
 		}
@@ -306,6 +331,11 @@ func (sl *ShardLeader) applyEntry(entry raftpb.Entry) {
 		sl.batchLock.Lock()
 		delete(sl.pendingTxIDs, reqProto.TxID)
 		sl.batchLock.Unlock()
+
+		// Cache the proof for future redundant requests (ensures bit-for-bit identical responses)
+		sl.proofCacheLock.Lock()
+		sl.proofCache[reqProto.TxID] = proof
+		sl.proofCacheLock.Unlock()
 
 		sl.mu.Lock()
 		sl.requestsHandled++
@@ -427,9 +457,27 @@ func (sl *ShardLeader) ProposeC() chan<- *PrepareRequest {
 	return sl.proposeC
 }
 
+// HasProof checks if a proof for the given TxID is already in the cache
+func (sl *ShardLeader) HasProof(txID string) bool {
+	sl.proofCacheLock.RLock()
+	defer sl.proofCacheLock.RUnlock()
+	_, exists := sl.proofCache[txID]
+	return exists
+}
+
 // Subscribe provides a one-time channel for a specific transaction's proof.
 // Supports multiple concurrent subscribers (e.g. multi-peer endorsement).
 func (sl *ShardLeader) Subscribe(txID string) <-chan *PrepareProof {
+	// First check cache for immediate response (prevents deduplication timeouts)
+	sl.proofCacheLock.RLock()
+	if proof, exists := sl.proofCache[txID]; exists {
+		sl.proofCacheLock.RUnlock()
+		ch := make(chan *PrepareProof, 1)
+		ch <- proof
+		return ch
+	}
+	sl.proofCacheLock.RUnlock()
+
 	sl.mu.Lock()
 	defer sl.mu.Unlock()
 	ch := make(chan *PrepareProof, 1)
