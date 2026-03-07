@@ -360,7 +360,7 @@ func (e *Endorser) ProcessProposalSuccessfullyOrError(up *UnpackedProposal) (*pb
 	hasDependency := false
 	dependentTxID := ""
 	maxCommitIndex := uint64(0)
-	maxTerm := uint64(0)
+	_ = maxCommitIndex // Prevent unused variable error if verified later
 
 	// ===== SHARDED RAFT-BASED DEPENDENCY RESOLUTION =====
 	// Controlled by FABRIC_SHARDING_ENABLED env var. When disabled (or unset),
@@ -458,7 +458,6 @@ func (e *Endorser) ProcessProposalSuccessfullyOrError(up *UnpackedProposal) (*pb
 					}
 					if proof.CommitIndex > maxCommitIndex {
 						maxCommitIndex = proof.CommitIndex
-						maxTerm = proof.Term
 					}
 					if proof.DependentTxID != "" {
 						if dependentTxID == "" {
@@ -506,8 +505,8 @@ func (e *Endorser) ProcessProposalSuccessfullyOrError(up *UnpackedProposal) (*pb
 	// IMPORTANT: This MUST be set BEFORE serializing prpBytes, otherwise the
 	// ChaincodeAction.Response.Message in the block won't contain the dependency
 	// info, and BuildDAGFromBlock won't find any edges → flat DAG → no parallelism.
-	res.Message = fmt.Sprintf("%s; DependencyInfo:HasDependency=%v,DependentTxID=%s,ShardCommitIndex=%d,ProofTerm=%d",
-		res.Message, hasDependency, dependentTxID, maxCommitIndex, maxTerm)
+	res.Message = fmt.Sprintf("%s; DependencyInfo:HasDependency=%v,DependentTxID=%s",
+		res.Message, hasDependency, dependentTxID)
 
 	prpBytes, err := protoutil.GetBytesProposalResponsePayload(up.ProposalHash, res, pubSimResBytes, cceventBytes, &pb.ChaincodeID{
 		Name:    up.ChaincodeName,
