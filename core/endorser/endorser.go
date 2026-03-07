@@ -31,6 +31,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -501,12 +502,21 @@ func (e *Endorser) ProcessProposalSuccessfullyOrError(up *UnpackedProposal) (*pb
 		}
 	}
 
+	// Sort the dependentTxIDs to ensure deterministic payload hashing
+	// because goroutines complete in random order during proof collection.
+	var sortedDeps string
+	if dependentTxID != "" {
+		depList := strings.Split(dependentTxID, ",")
+		sort.Strings(depList)
+		sortedDeps = strings.Join(depList, ",")
+	}
+
 	// Include dependency and proof information in response message
 	// IMPORTANT: This MUST be set BEFORE serializing prpBytes, otherwise the
 	// ChaincodeAction.Response.Message in the block won't contain the dependency
 	// info, and BuildDAGFromBlock won't find any edges → flat DAG → no parallelism.
 	res.Message = fmt.Sprintf("%s; DependencyInfo:HasDependency=%v,DependentTxID=%s",
-		res.Message, hasDependency, dependentTxID)
+		res.Message, hasDependency, sortedDeps)
 
 	prpBytes, err := protoutil.GetBytesProposalResponsePayload(up.ProposalHash, res, pubSimResBytes, cceventBytes, &pb.ChaincodeID{
 		Name:    up.ChaincodeName,
