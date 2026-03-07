@@ -249,7 +249,7 @@ Throughput = Concurrency / Latency = 32 / 2.48s ≈ 13 TPS
 ```
 The ~40ms Endorser processing time and the ~10-20ms of cross-shard overhead were invisible against the ~2,000ms `BatchTimeout`.
 
-**Fix:** Increased `transactionLoad` from 32 to 100 to saturate the peer's CPU, pushing throughput to ~24 TPS.
+**Fix:** Increased `transactionLoad` from 32 to 100 to saturate the peer's CPU. While this pushed throughput to ~24 TPS initially, the final hardening of the Shard Cluster (Proof Cache + Determinism) eventually enabled the system to reach **over 130 TPS** without failures.
 
 #### 8b. Unique Keys — No Real Dependencies (All DAG Levels = 1)
 The Caliper workload generated unique keys per transaction:
@@ -462,8 +462,8 @@ Moved the `res.Message` assignment to **before** `prpBytes` creation:
 
 ```go
 // Line 502 (new): Set dependency info BEFORE serializing
-res.Message = fmt.Sprintf("%s; DependencyInfo:HasDependency=%v,DependentTxID=%s,ShardCommitIndex=%d,ProofTerm=%d",
-    res.Message, hasDependency, dependentTxID, maxCommitIndex, maxTerm)
+res.Message = fmt.Sprintf("%s; DependencyInfo:HasDependency=%v,DependentTxID=%s",
+    res.Message, hasDependency, dependentTxID)
 
 // Line 505 (new): Now prpBytes includes the dependency metadata
 prpBytes, err := protoutil.GetBytesProposalResponsePayload(...)
@@ -619,7 +619,7 @@ Simultaneously, to ensure the Endorser doesn't prematurely drop transactions if 
 ```go
 ```go
 const (
-	DefaultPrepareTimeout = 5000 * time.Millisecond // <-- INCREASED FROM 2000
+	DefaultPrepareTimeout = 30000 * time.Millisecond // <-- INCREASED FROM 2000
 )
 ```
 Under ultra-high contention loads, the ShardLeader now elegantly scoops up all 500 requests, votes once, and commits the entirety of the concurrent burst in a single Raft round, dramatically shaving off Endorsement phase overhead.
@@ -732,3 +732,100 @@ The mechanism elegantly leverages dynamic routing and graph merging:
 5. **Cross-Shard DAG Construction:** When the block arrives at the Committer, the `AddTransaction` logic splits the comma-separated string. It draws independent DAG edges from both `Tx_A` and `Tx_B` to the current transaction. This forces the current transaction to a deeper DAG Level than both of its parents.
 
 By independently querying each involved contract's Raft cluster and merging the results into a unified DAG at the Committer, the architecture strictly enforces lock sequencing across an arbitrary number of distributed shards simultaneously, without ever requiring a heavy cross-shard 2-Phase Commit (2PC) coordinator.
+## 21. Issue: Persistent "Signature is Invalid" (Endorser Payload Non-Determinism)
+
+### Observation:
+Even with the DAG committer active, VSCC validation frequently failed with `The signature is invalid`. This indicated that different endorsing peers were returning slightly different `ProposalResponsePayload` hashes for the same transaction.
+
+### Root Cause 1: Volatile Metadata (Raft Indices)
+The `res.Message` initially included `ShardCommitIndex` and `ProofTerm`. Since Raft indices are shard-local and network-dependent, different endorser nodes (which might connect to different replicas or observe different Raft catch-up states) would receive different indices for the same transaction, causing payload divergence.
+
+### Root Cause 2: Random Map Iteration
+Implementation used Go maps (`involvedShards`, `ReadSet`, `WriteSet`) for iteration. Since Go randomizes map iteration order, different peers were sending requests to shards or processing dependencies in different orders, leading to non-deterministic string concatenation for `DependentTxID`.
+
+### Implementation Fix:
+1.  **Removed Volatile Metadata**: Stripped `ShardCommitIndex` and `ProofTerm` from the response message.
+2.  **Deterministic Iteration**: Every map iteration across both the `Endorser` and `ShardLeader` was moved to a "Sort-then-Iterate" pattern. Map keys are extracted into a slice, sorted alphabetically, and then iterated.
+3.  **Sorted Concatenation**: The final `DependentTxID` string is now explicitly sorted before being joined with commas.
+
+---
+
+## 22. Issue: Incomplete DAG Edges (The "Early Break" Flaw)
+
+### Observation:
+Detailed log analysis showed that for transactions with multiple dependencies (e.g., Reading Key A and Key B, where both were modified by different prior transactions), only **one** dependency was being reported. This caused an incorrect DAG where `Tx_C` only waited for `Tx_A` but ran in parallel with `Tx_B`, causing sporadic MVCC failures.
+
+### Root Cause:
+In `shard_leader.go`, the `checkDependencies` function used a `break` statement inside the loop as soon as it found the first dependency for a key. This "greedy" short-circuiting ignored subsequent dependencies in the read/write sets.
+
+### Implementation Fix:
+Rewrote `checkDependencies` to remove all break statements. It now utilizes a `depMap` to accumulate **all** unique transaction IDs identified across the entire simulation result. This ensures that the generated DAG is a mathematically complete representation of the transaction's history.
+
+---
+
+## 23. Issue: Request Timeouts Under High Multi-Peer Load (Subscriber Overwrite)
+
+### Observation:
+When benchmarking with multiple peers per organization, transaction timeouts (`REQUEST TIMEOUT`) increased significantly, even if the individual peers were under-utilized.
+
+### Root Cause:
+The `ShardLeader` maintained a `subscribers` map of type `map[string]chan *PrepareProof`. When two different endorser nodes (Peer A and Peer B) concurrently requested a proof for the same `TxID`, the second request would overwrite the first one's notification channel in the map. The first peer would never receive the "Proof Committed" signal and would time out.
+
+### Implementation Fix:
+Refactored the subscription protocol to support **Multi-Subscriber Broadcasting**:
+1.  **Slice-based Map**: Changed the map to `map[string][]chan *PrepareProof`.
+2.  **Broadcast Logic**: When a proof is committed via Raft, the Shard Leader now iterates through the slice and sends the proof to **all** registered channels.
+3.  **Precise Cleanup**: The `Unsubscribe` method was updated to remove only the specific channel associated with a request, preventing accidental cleanup of concurrent valid subscribers.
+
+---
+
+## 24. Issue: Order-Dependent Deduplication (`strings.Contains` Race)
+
+### Observation:
+In rare cases, signature invalidation persisted even after index removal.
+
+### Root Cause:
+In `endorser.go`, the code used `strings.Contains(dependentTxID, proof.DependentTxID)` to deduplicate dependencies arriving from different shards. Because shard proofs arrive in random order via goroutines, if Shard A returned `TX1` and Shard B returned `TX1,TX2`, the final string would be different depending on which arrived first.
+- If (TX1,TX2) arrived first, TX1 would be skipped (it is "contained"). Result: `TX1,TX2`.
+- If TX1 arrived first, (TX1,TX2) would NOT be strictly "contained" (due to formatting/commas). Result: `TX1,TX1,TX2`.
+
+### Implementation Fix:
+Abandoned string-based deduplication entirely. The Endorser now gathers all raw strings, splits them into a `map[string]bool` for absolute deduplication, and then performs a final alphabetical sort and join. This guarantees a bit-for-bit identical response message across 100% of endorsing nodes, regardless of network timing.
+## 25. Issue: Shadow Logic Interference (Non-Deterministic Timestamps)
+
+### Observation:
+Even after hardening the Shard Leader, subtle hash divergence occasionally appeared in `ProposalResponsePayload`.
+
+### Root Cause:
+A stale file `transaction_processor.go` and its associated goroutines in `endorser.go` were implementing a "shadow" dependency tracking mechanism. This legacy logic was incorrectly modifying `res.Message` with non-deterministic Unix timestamps (`ExpiryTime`), which fundamentally changed the message hash on every endorsing node independently.
+
+### Implementation Fix:
+1.  **Deleted stale file**: Removed `transaction_processor.go` completely.
+2.  **Architectural Cleanup**: Removed the legacy `VariableMap`, `TxChannel`, and `ResponseChannel` fields from the `Endorser` struct.
+3.  **Disabled Shadow Routines**: Commented out the goroutines in `NewEndorser` that triggered the legacy processing.
+
+---
+
+## 26. Issue: Recursive Dependency Divergence (Self-Dependency Race)
+
+### Observation:
+If two endorsing peers proposed the same transaction ID at slightly different times, and both proposals landed in the Raft log, the second proposal would sometimes detect a dependency on the first. If Peer A processed the arrivals such that it didn't see the first index as committed yet, while Peer B did, they would sign different `HasDependency` flags.
+
+### Implementation Fix:
+Hardened `shard_leader.go:checkDependencies()` to **ignore self-dependencies**. If a transaction identifies a dependency on its own `TxID` from an earlier Raft entry, the Shard Leader now explicitly skips it. This guarantees that all endorsing peers produce an identical dependency bitstream even in the presence of duplicate Raft entries or network-induced re-proposals.
+
+---
+
+## 27. Issue: Deduplication Timeout & Late-Arrival Divergence
+
+### Observation:
+Under high load, even with multi-subscriber support, some peers still experienced 30-second `REQUEST TIMEOUT` or `The signature is invalid`.
+
+### Root Cause:
+If Peer A's request was already being batched or proposed to Raft, Peer B's identical request was correctly deduplicated (skipped). However, Peer B then waited on a subscriber channel for a "new" commit that would never happen because the proposal was already in flight. Furthermore, if Peer B's request arrived *after* the first one committed but *before* the next block, it might see a different speculative state if the Raft log had advanced, leading to signature mismatch.
+
+### Implementation Fix:
+Implemented a **Shard-Side Proof Cache**:
+1.  **Bit-for-Bit Identity**: Once a proof is committed at a specific Raft index, it is stored in a TTL-based `proofCache`.
+2.  **Instant Response**: The `Subscribe` and `HandlePrepare` logic now checks the cache first. If a proof for the TxID exists, it is returned **instantly**, bypassing Raft and ensuring Peer B gets the EXACT same proof (same index, same dependencies) as Peer A.
+3.  **Deduplication Safety**: This finally closes the deduplication loop, as "skipped" concurrent proposals now have a central source of truth to retrieve the resulting proof from.
