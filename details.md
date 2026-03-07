@@ -829,3 +829,46 @@ Implemented a **Shard-Side Proof Cache**:
 1.  **Bit-for-Bit Identity**: Once a proof is committed at a specific Raft index, it is stored in a TTL-based `proofCache`.
 2.  **Instant Response**: The `Subscribe` and `HandlePrepare` logic now checks the cache first. If a proof for the TxID exists, it is returned **instantly**, bypassing Raft and ensuring Peer B gets the EXACT same proof (same index, same dependencies) as Peer A.
 3.  **Deduplication Safety**: This finally closes the deduplication loop, as "skipped" concurrent proposals now have a central source of truth to retrieve the resulting proof from.
+
+---
+
+## 28. Evaluation: Effective Throughput vs. Raw Throughput
+
+### The Throughput Paradox
+When comparing the Proposed Architecture (C1) against Vanilla Fabric, it is critical to distinguish between **Raw Throughput** and **Effective Throughput**. Caliper's default "Throughput" metric calculates the rate at which the Committer processes envelopes, *including failed transactions*.
+
+Vanilla Fabric often shows high *Raw* Throughput under contention because MVCC failures are computationally cheap—the Committer simply marks the transaction `INVALID` and skips the expensive state-database write. However, these failed transactions provide zero utility and must be retried by the client, compounding network congestion.
+
+**Effective Throughput** correctly measures only the successfully committed transactions:
+$$\text{Effective Throughput (TPS)} = \left(\frac{\text{Successful Transactions}}{\text{Total Transactions}}\right) \times \text{Raw Throughput}$$
+
+### Benchmark Results (5000 txns, 40% Dependency Load)
+
+#### Proposed Architecture (C1)
+*   **Success Rate**: 100% (4992 / 4992)
+*   **Raw Throughput**: 130.2 TPS
+*   **Effective Throughput**: **130.2 TPS**
+
+| Name             | Succ | Fail | Send Rate (TPS) | Max Latency (s) | Min Latency (s) | Avg Latency (s) | Throughput (TPS) |
+|------------------|------|------|-----------------|-----------------|-----------------|-----------------|------------------|
+| EXP1 - 1000 txns | 992  | 0    | 83.2            | 4.24            | 0.80            | 1.97            | 77.4             |
+| EXP1 - 2000 txns | 1984 | 0    | 116.6           | 5.63            | 0.40            | 1.86            | 105.0            |
+| EXP1 - 3000 txns | 2976 | 0    | 130.3           | 5.85            | 0.56            | 1.84            | 120.3            |
+| EXP1 - 4000 txns | 4000 | 0    | 120.4           | 5.49            | 0.35            | 1.89            | 112.5            |
+| EXP1 - 5000 txns | 4992 | 0    | 137.0           | 4.54            | 0.45            | 1.75            | 130.2            |
+
+#### Vanilla Fabric
+*   **Success Rate**: ~75.3% (3759 / 4992)
+*   **Raw Throughput**: 134.7 TPS
+*   **Effective Throughput**: **101.4 TPS**
+
+| Name             | Succ | Fail | Send Rate (TPS) | Max Latency (s) | Min Latency (s) | Avg Latency (s) | Throughput (TPS) |
+|------------------|------|------|-----------------|-----------------|-----------------|-----------------|------------------|
+| EXP1 - 1000 txns | 723  | 269  | 94.3            | 3.96            | 0.77            | 2.03            | 77.7             |
+| EXP1 - 2000 txns | 1485 | 499  | 121.3           | 4.67            | 0.36            | 1.86            | 115.9            |
+| EXP1 - 3000 txns | 2278 | 698  | 111.9           | 10.24           | 0.40            | 2.47            | 110.0            |
+| EXP1 - 4000 txns | 2963 | 1037 | 135.2           | 4.40            | 0.39            | 1.69            | 130.5            |
+| EXP1 - 5000 txns | 3759 | 1233 | 138.6           | 6.01            | 0.23            | 1.87            | 134.7            |
+
+### Conclusion
+By eliminating the massive ~25% MVCC abort rate present in Vanilla Fabric, the Proposed Architecture achieves a **~28.4% increase in usable, Effective Throughput** at scale, all while maintaining perfect data integrity under heavy contention.
