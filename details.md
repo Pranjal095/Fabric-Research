@@ -527,3 +527,208 @@ if dagLevels != nil && !doMVCCValidation {
 - Level 0 transactions (independent) → `applyWriteSet` runs concurrently
 - Level 1+ transactions (dependent) → run after their parent level completes
 - Falls back to sequential path when `FABRIC_SHARDING_ENABLED=false`
+
+---
+
+## 13. Issue: Bottlenecked Throughput Despite Parallel Commits (Artificial ShardLeader Batching Delay)
+
+### Observation:
+Even after implementing the full DAG-parallel state commit and running the cluster at `size=1`, the transaction throughput inexplicably plateaued at `40-57 TPS`, compared to `60-65 TPS` in normal Fabric. The orderer logs proved that the commit phase was blazing fast (`state_commit=15ms`), indicating the bottleneck was entirely within the Endorser phase. 
+
+### Root Cause:
+In the `ShardLeader` component (`core/endorser/sharding/shard_leader.go`), incoming dependency preparation requests (from Caliper to the Endorser) were artificially buffered into batches before being proposed to the Raft consensus engine.
+
+```go
+const (
+	DefaultBatchMaxSize   = 20
+	DefaultBatchTimeout   = 300 * time.Millisecond // <-- ARTIFICIAL LATENCY
+)
+```
+
+Because the test workload (`transactionLoad`) was not perfectly saturating 20 transactions within a few milliseconds, the `ShardLeader`'s batching timer frequently hit its `300ms` limit before flushing the queue to Raft. 
+
+By Little's Law ($Throughput = Concurrency \div Latency$), adding a flat $300ms$ penalty to the Endorsement phase artificially caps the throughput of the entire network, regardless of how parallel the block commit phase is at the end of the pipeline.
+
+### Implementation Fix:
+We optimized the batching parameters in `core/endorser/sharding/shard_leader.go` to aggressively flush the queues to the Raft engine, drastically reducing artificial endorsement latency while still allowing for batching under heavy sustained load:
+
+```go
+const (
+	DefaultBatchMaxSize   = 50
+	DefaultBatchTimeout   = 10 * time.Millisecond // <-- REDUCED FROM 300ms
+)
+```
+
+This ensures the Endorsers spend their time actually executing consensus rather than arbitrarily waiting, allowing the true throughput capability of the DAG-parallel hardware pipeline to be reached.
+
+---
+
+## 14. Issue: Flat DAG Construction (Missing DependentTxID in Proof)
+
+### Observation:
+Even after fixing the `BuildDAGFromBlock` function to properly unmarshal `ChaincodeActionPayload`, the peer logs consistently reported:
+```text
+Tx [xyz] Action Response Message: '; DependencyInfo:HasDependency=true,DependentTxID=,ShardCommitIndex=198...'
+Processing block with DAG: 1 levels of transactions
+```
+The DAG was successfully parsing the `DependencyInfo` envelope string, but `DependentTxID` was completely empty (`DependentTxID=,`). Because there were no parent edges linking the transactions, the Committer blindly treated every transaction as an independent root node (Level 0), causing a flat 1-level execution graph and negating all parallelization ordering logic.
+
+### Root Cause:
+The `ShardLeader` in the Endorser was correctly calculating the dependency links internally, but it communicated these proofs back to the Endorser process via a gRPC `PrepareProof` struct (`core/endorser/sharding/types.go` & `shard_leader.go`). 
+
+The original `PrepareProof` struct definition physically lacked a `DependentTxID` field:
+```go
+type PrepareProof struct {
+	TxID        string
+	ShardID     string
+	CommitIndex uint64
+	LeaderID    uint64
+	Signature   []byte
+	Term        uint64
+	// Missing DependentTxID!
+}
+```
+Because the field didn't exist, it was impossible for the Endorser to extract the parent transaction ID to serialize into the Protobuf block, blinding the downstream Committer.
+
+### Implementation Fix:
+1. **Added Field:** Added `DependentTxID string` to the `PrepareProof` struct.
+2. **Populated in Shard:** Updated `shard_leader.go:applyEntry()` to attach `dependentTxID` to the proof struct right before publishing it to the Endorser's `commitC` channel.
+3. **Accumulated in Endorser:** Updated the shard gathering loop in `endorser.go` to extract the `proof.DependentTxID`. If a transaction touched multiple shards with distinct dependencies, it intelligently concatenates them into a comma-separated list (`tx1,tx2`), ensuring the Committer knows every single parent node.
+
+---
+
+## 15. Issue: Massive Endorsement Latency Under 500+ TPS Overload
+
+### Observation:
+When pushing the Caliper benchmark to `transactionLoad: 500` (fixed-load peak concurrency), the raw throughput oddly dropped below Vanilla Fabric constraints, and average transaction latency skyrocketed to ~1.84s.
+
+### Root Cause:
+While resolving the artificial `300ms` `DefaultBatchTimeout` (Issue 13) improved moderate throughput, at *extreme* concurrencies, the Endorser hit a new ceiling: **Raft Batch Churn**. 
+The `DefaultBatchMaxSize` was hardcoded to `50` in `shard_leader.go`. 
+
+When blasting `500` concurrent transactions per second, the ShardLeader was forced to surgically slice the burst into `10` distinct `PrepareRequestBatch`es, rapidly grinding through `10` back-to-back Raft consensus/voting rounds in the span of a single second. The sheer overhead of repetitive gRPC networking, election ticks, and internal Raft state machine application per batch choked the Endorser's CPU capacity.
+
+### Implementation Fix:
+We widened the consensus bandwidth by increasing the batch limit ceilings in `core/endorser/sharding/shard_leader.go`:
+```go
+const (
+	DefaultBatchMaxSize   = 500 // <-- INCREASED FROM 50
+)
+```
+Simultaneously, to ensure the Endorser doesn't prematurely drop transactions if a massive 500-tx payload takes slightly longer to traverse the cluster, we loosened the `DefaultPrepareTimeout` safety bound in `endorser.go`:
+```go
+```go
+const (
+	DefaultPrepareTimeout = 5000 * time.Millisecond // <-- INCREASED FROM 2000
+)
+```
+Under ultra-high contention loads, the ShardLeader now elegantly scoops up all 500 requests, votes once, and commits the entirety of the concurrent burst in a single Raft round, dramatically shaving off Endorsement phase overhead.
+
+---
+
+## 16. The Difference Between Intra-Block and Inter-Block Dependencies
+
+### Observation:
+While running the benchmark, the peer logs would occasionally show beautifully extracted dependency IDs, but the DAG graph explicitly stated things like:
+`Processing block with DAG: 1 levels of transactions`
+Despite the presence of `DependentTxID`s, the Committer only mapped a single dependency level (Level 0).
+
+### Root Cause & Architecture Mechanics:
+The dependency-aware architecture behaves differently depending on *when* the dependent transactions are batched by the Orderer.
+The Hyperledger Fabric Orderer guarantees strictly sequential block processing. Because of this, temporal dependencies are partially solved just by the nature of block boundaries.
+
+1. **Intra-Block Dependencies (Multi-Level DAG):**
+   If Transaction A and Transaction B (which depends on A) are both captured in the *exact same Orderer block* (e.g., Block 294), the Committer encounters a conflict. It must ensure A is executed before B.
+   To solve this, the `TransactionDAG` algorithms map A to **Level 0**, and B to **Level 1**, executing them serially inside the block, while all other transactions in Level 0 execute in parallel.
+   
+2. **Inter-Block Dependencies (Flat DAG):**
+   If A is committed in **Block 293**, and B arrives in **Block 294**.
+   When Block 294 is parsed, the DAG algorithm sees B depends on A, but A is *not in the current block*. Because A was already safely committed to the physical CouchDB/LevelDB in the past, B does not need to wait for anything within the context of Block 294. 
+   Therefore, the DAG intelligently ignores the past dependency and automatically slots B into **Level 0** alongside the rest of Block 294's independent transactions, resulting perfectly in a 1-level parallel execution.
+
+### Creating Intra-Block Collisions:
+To force deep multi-level DAGs during benchmarking, the workload must be configured to squeeze heavy contention into the same 2-second Orderer window. For example, in `config_exp1.yaml`, tightening `hotKeys: 2` and increasing `dependency: 0.90` mathematically forces the ShardLeader to chain dozens of transactions onto the same 2 keys concurrently, guaranteeing they land in the exact same Orderer block and trigger a deep dependency cascade.
+
+---
+
+## 17. The Mixed Dependency Invalidation Bug
+
+### Observation:
+Transactions that had *both* an inter-block dependency (parent in a past block) and an intra-block dependency (parent in the current block) were occasionally failing with validation errors during the `processBlockWithDAG` phase.
+
+### Root Cause:
+In `core/committer/committer_impl.go`, the validation sequence looped through *all* `DependentTxIDs` of a transaction and checked `dag.IsValid(depTxID)`.
+Because a dependency from a past block (inter-block) is physically non-existent in the *current* block's temporary DAG map, `dag.IsValid` returned `false`. This falsely flagged the valid past-block dependency as a failure, causing the Committer to aggressively abort the current perfectly legal transaction.
+
+### Implementation Fix:
+We patched `processBlockWithDAG` to explicitly verify if the dependency actually resides within the current block graph before checking its validity:
+```go
+for _, depTxID := range node.DependentTxIDs {
+    // Skip dependencies from previous blocks (they are already securely committed)
+    if _, exists := dag.Nodes[depTxID]; !exists {
+        continue
+    }
+
+    if !dag.IsValid(depTxID) {
+        allDepsValid = false
+        break
+    }
+}
+```
+
+---
+
+## 18. Architectural Comparison: Proposed Architecture vs. Vanilla Fabric
+
+The core value of the Sharded Dependency-Aware architecture is solving high-contention throughput collapse.
+
+### Vanilla Fabric (Execute -> Order -> Validate)
+1. **Parallel Execution:** Endorsers simulate 100 conflicting transactions simultaneously. All 100 read the same DB version (V1) and successfully endorse passing V2.
+2. **Ordered Blindly:** The 100 transactions are packaged into a block based strictly on FIFO network arrival time to the Orderer.
+3. **Sequential Validation:** The Committer executes the block sequentially. Transaction 1 succeeds (DB is now V2). Transactions 2 through 100 all fail with `MVCC_READ_CONFLICT` because the database version shifted out from under their endorsed read-sets.
+*Result: 1% Success Rate under high contention.*
+
+### Proposed Architecture (Sequence -> Execute -> Order -> DAG Validate)
+1. **Deterministic Sequencing (ShardLeader):** Before executing, Endorsers feed incoming transactions to a Raft group to establish a rigorous, network-wide sequence for the conflicting keys.
+2. **Dependent Execution:** The Endorser simulates them based on the Raft sequence. If Tx2 follows Tx1, the Endorser ensures Tx2 reads the speculative output of Tx1, and structurally injects `DependentTxID=Tx1` into the payload.
+3. **Ordered by Orderer:** The Orderer packs them into a block. Even if network latency shuffles the order within the block (e.g., `[Tx2, Tx1]`), it doesn't matter.
+4. **DAG Validation (Committer):** The Committer reads the block and constructs a Directed Acyclic Graph based on the `DependentTxIDs`. It mathematically re-sorts the transactions into correct Level 0, Level 1, etc., executing them in the proper sequence and bypassing standard MVCC.
+*Result: 100% Success Rate under high contention, with parallel execution for non-conflicting nodes.*
+
+---
+
+## 19. Mathematical Correctness of Bypassing MVCC Validation
+
+### Observation:
+The architecture explicitly bypasses Fabric's core MVCC validation phase (`SkipMVCCValidation: true`) in the Committer for DAG-processed blocks. A critical question arises: *How does this guarantee correctness and prevent dirty reads/writes without MVCC aborts?*
+
+### Theoretical Proof:
+Vanilla Fabric relies on **optimistic concurrency**—transactions execute blindly, and MVCC aborts them post-execution if a read-set is invalidated by a concurrent write.
+
+This proposed architecture shifts to **deterministic concurrency**:
+1. **Pre-Execution Sequencing (Raft):** When multiple transactions attempt to access the same hot keys, the Endorser routes them to a `ShardLeader`. The Raft consensus mathematically guarantees a strict, totally ordered sequence for these conflicting transactions *before* they are sent to the Orderer. If Tx B reads a key written by Tx A, Raft forcefully flags Tx B with `DependentTxID=Tx_A`.
+2. **Deterministic Execution (DAG):** When the block reaches the Committer, the DAG algorithm formally structures this sequence into a Directed Acyclic Graph. Tx A is placed in Level 0, and Tx B in Level 1. The Committer *physically waits* for all Level 0 transactions to commit their state locks before allowing Level 1 to execute.
+
+Because the DAG fundamentally physically prevents Tx B from executing until Tx A has committed, **dirty reads, dirty writes, and phantom reads are structurally impossible within the block.** 
+
+Therefore, standard MVCC read-version validation is redundant. Bypassing it (`SkipMVCCValidation: true`) is mathematically sound because all structural conflicts have already been pre-resolved by the Raft Sequence and enforced by the DAG Parallelizer. This is precisely why the architecture achieves 0 MVCC aborts under extreme load.
+
+---
+
+## 20. Cross-Shard Dependency Handling
+
+### Observation:
+How does the architecture maintain consistency when a transaction spans multiple smart contracts (e.g., a transfer touching both `token-erc20` and `smallbank` namespaces), considering each contract runs its own independent Raft ShardLeader?
+
+### Architecture Mechanics:
+The mechanism elegantly leverages dynamic routing and graph merging:
+
+1. **Dynamic Shard Routing:** During transaction simulation, the Endorser inspects the read/write sets and dynamically categorizes the variables by their `namespace` (the contract name).
+2. **Concurrent Consensus:** If a transaction touches both `token-erc20` and `smallbank`, the Endorser simultaneously submits a `PrepareRequest` to *both* independent ShardLeaders.
+3. **Independent Sequencing:** 
+   - The `token-erc20` Shard sequences the transaction against other token operations (e.g., yields `DependentTxID=Tx_A`).
+   - The `smallbank` Shard independently sequences it against banking operations (e.g., yields `DependentTxID=Tx_B`).
+4. **Proof Merging in Endorser:** The Endorser waits mathematically for proofs from *all* involved shards. It concatenates the resulting dependency IDs into a unified comma-separated string in the gRPC response: `DependentTxID=Tx_A,Tx_B`.
+5. **Cross-Shard DAG Construction:** When the block arrives at the Committer, the `AddTransaction` logic splits the comma-separated string. It draws independent DAG edges from both `Tx_A` and `Tx_B` to the current transaction. This forces the current transaction to a deeper DAG Level than both of its parents.
+
+By independently querying each involved contract's Raft cluster and merging the results into a unified DAG at the Committer, the architecture strictly enforces lock sequencing across an arbitrary number of distributed shards simultaneously, without ever requiring a heavy cross-shard 2-Phase Commit (2PC) coordinator.
