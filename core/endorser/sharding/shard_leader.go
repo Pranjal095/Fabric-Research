@@ -220,12 +220,6 @@ func (sl *ShardLeader) flushBatch() {
 	if err := sl.node.Propose(context.TODO(), data); err != nil {
 		logger.Errorf("Failed to propose batch for shard %s: %v", sl.shardID, err)
 	}
-
-	sl.batchLock.Lock()
-	for _, req := range batch {
-		delete(sl.pendingTxIDs, req.TxID)
-	}
-	sl.batchLock.Unlock()
 }
 
 // serializeBatch serializes a batch of prepare requests
@@ -306,6 +300,14 @@ func (sl *ShardLeader) applyEntry(entry raftpb.Entry) {
 		}
 
 		sl.mu.Lock()
+		delete(sl.subscribers, reqProto.TxID)
+		sl.mu.Unlock()
+
+		sl.batchLock.Lock()
+		delete(sl.pendingTxIDs, reqProto.TxID)
+		sl.batchLock.Unlock()
+
+		sl.mu.Lock()
 		sl.requestsHandled++
 		sl.mu.Unlock()
 	}
@@ -330,6 +332,15 @@ func (sl *ShardLeader) checkDependencies(req *PrepareRequestProto) (bool, string
 
 	for _, key := range readKeys {
 		if depInfo, exists := sl.variableMap[key]; exists {
+			// CRITICAL: Ignore self-dependencies! If the same TxID appears
+			// twice in the Raft log, it MUST NOT depend on its own earlier
+			// version. This ensures that every endorsing peer produces
+			// deterministic hasDependency/dependentTxID even if they
+			// process duplicate entries in different orders.
+			if depInfo.DependentTxID == req.TxID {
+				continue
+			}
+
 			hasDependency = true
 			if depInfo.DependentTxID != "" {
 				depMap[depInfo.DependentTxID] = true
@@ -347,6 +358,11 @@ func (sl *ShardLeader) checkDependencies(req *PrepareRequestProto) (bool, string
 
 	for _, key := range writeKeys {
 		if depInfo, exists := sl.variableMap[key]; exists {
+			// CRITICAL: Ignore self-dependencies
+			if depInfo.DependentTxID == req.TxID {
+				continue
+			}
+
 			hasDependency = true
 			if depInfo.DependentTxID != "" {
 				depMap[depInfo.DependentTxID] = true

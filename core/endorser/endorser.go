@@ -165,19 +165,11 @@ type Endorser struct {
 	stopChan               chan struct{}
 	wg                     sync.WaitGroup
 
-	// Legacy fields for backward compatibility
-	VariableMap               map[string]TransactionDependencyInfo
-	VariableMapLock           sync.RWMutex
-	EndorsementExpiryDuration time.Duration
-	TxChannel                 chan *pb.ProposalResponse
-	ResponseChannel           chan *pb.ProposalResponse
-	ProcessingTxs             map[string]*pb.ProposalResponse
-	ProcessingLock            sync.RWMutex
-	HealthStatus              *HealthStatus
-	HealthCheckLock           sync.RWMutex
-	LastLeaderCheck           time.Time
-	LeaderCheckError          error
-	LeaderCircuitBreaker      *CircuitBreaker
+	HealthStatus         *HealthStatus
+	HealthCheckLock      sync.RWMutex
+	LastLeaderCheck      time.Time
+	LeaderCheckError     error
+	LeaderCircuitBreaker *CircuitBreaker
 }
 
 // NewEndorser creates a new instance of Endorser with the given dependencies
@@ -185,39 +177,21 @@ func NewEndorser(channelFetcher ChannelFetcher, localMSP msp.IdentityDeserialize
 	pvtDataDistributor PrivateDataDistributor, support Support,
 	pvtRWSetAssembler PvtRWSetAssembler, metrics *Metrics, config EndorserConfig) *Endorser {
 	endorser := &Endorser{
-		ChannelFetcher:            channelFetcher,
-		LocalMSP:                  localMSP,
-		PrivateDataDistributor:    pvtDataDistributor,
-		Support:                   support,
-		PvtRWSetAssembler:         pvtRWSetAssembler,
-		Metrics:                   metrics,
-		Config:                    config,
-		ShardManager:              sharding.NewShardManager(nil, metrics),
-		stopChan:                  make(chan struct{}),
-		VariableMap:               make(map[string]TransactionDependencyInfo),
-		EndorsementExpiryDuration: sharding.DefaultExpiryDuration,
-		TxChannel:                 make(chan *pb.ProposalResponse, 1000),
-		ResponseChannel:           make(chan *pb.ProposalResponse, 1000),
-		ProcessingTxs:             make(map[string]*pb.ProposalResponse),
+		ChannelFetcher:         channelFetcher,
+		LocalMSP:               localMSP,
+		PrivateDataDistributor: pvtDataDistributor,
+		Support:                support,
+		PvtRWSetAssembler:      pvtRWSetAssembler,
+		Metrics:                metrics,
+		Config:                 config,
+		ShardManager:           sharding.NewShardManager(nil, metrics),
+		stopChan:               make(chan struct{}),
 		HealthStatus: &HealthStatus{
 			IsHealthy:     true,
 			LastCheckTime: time.Now(),
 			Details:       make(map[string]interface{}),
 		},
 		LeaderCircuitBreaker: NewCircuitBreaker(DefaultCircuitBreakerConfig(), metrics),
-	}
-
-	// Start leader-specific goroutines if this is a leader endorser
-	if config.Role == LeaderEndorser {
-		endorser.wg.Add(2)
-		go func() {
-			defer endorser.wg.Done()
-			endorser.cleanupExpiredDependencies()
-		}()
-		go func() {
-			defer endorser.wg.Done()
-			endorser.processTransactions()
-		}()
 	}
 
 	// Start health check goroutine
@@ -618,11 +592,8 @@ func (e *Endorser) performHealthCheck() {
 		Details:       make(map[string]interface{}),
 	}
 
-	// Check dependency map health
-	e.VariableMapLock.RLock()
-	mapSize := len(e.VariableMap)
-	e.VariableMapLock.RUnlock()
-	status.Details["dependencyMapSize"] = mapSize
+	// Check dependency map health (removed)
+	status.Details["dependencyMapSize"] = 0
 
 	// Check leader connectivity for normal endorsers
 	if e.Config.Role == NormalEndorser {
@@ -636,13 +607,8 @@ func (e *Endorser) performHealthCheck() {
 		}
 	}
 
-	// Check transaction processing channels
-	if e.TxChannel == nil || e.ResponseChannel == nil {
-		status.IsHealthy = false
-		status.Details["channels"] = "transaction channels not initialized"
-	} else {
-		status.Details["channels"] = "ok"
-	}
+	// Check transaction processing channels (removed)
+	status.Details["channels"] = "ok"
 
 	// Update health status
 	e.HealthStatus = status
