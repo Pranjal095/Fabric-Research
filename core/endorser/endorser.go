@@ -406,7 +406,16 @@ func (e *Endorser) ProcessProposalSuccessfullyOrError(up *UnpackedProposal) (*pb
 		ctx, cancel := context.WithTimeout(context.Background(), DefaultPrepareTimeout)
 		defer cancel()
 
-		for shardName, writeSet := range involvedShards {
+		// Go maps iterate randomly. Extract and sort keys to guarantee determinism
+		// across all Endorsing peers, ensuring identical execution flow.
+		var sortedShardNames []string
+		for shardName := range involvedShards {
+			sortedShardNames = append(sortedShardNames, shardName)
+		}
+		sort.Strings(sortedShardNames)
+
+		for _, shardName := range sortedShardNames {
+			writeSet := involvedShards[shardName]
 			if e.ShardManager == nil {
 				return nil, errors.New("Endorser ShardManager is not initialized")
 			}

@@ -9,6 +9,8 @@ package sharding
 import (
 	"context"
 	"fmt"
+	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -300,29 +302,51 @@ func (sl *ShardLeader) checkDependencies(req *PrepareRequestProto) (bool, string
 	defer sl.variableMapLock.RUnlock()
 
 	hasDependency := false
-	dependentTxID := ""
+	depMap := make(map[string]bool)
 
-	for key := range req.ReadSet {
+	// Must sort keys because Go map iteration is randomized
+	// If a tx touches multiple variables with dependencies, different
+	// ShardLeaders might select different dependentTxIDs and break consensus!
+	var readKeys []string
+	for k := range req.ReadSet {
+		readKeys = append(readKeys, k)
+	}
+	sort.Strings(readKeys)
+
+	for _, key := range readKeys {
 		if depInfo, exists := sl.variableMap[key]; exists {
 			hasDependency = true
-			dependentTxID = depInfo.DependentTxID
+			if depInfo.DependentTxID != "" {
+				depMap[depInfo.DependentTxID] = true
+			}
 			logger.Debugf("Shard %s: Tx %s has read dependency on %s for key %s",
-				sl.shardID, req.TxID, dependentTxID, key)
-			break
+				sl.shardID, req.TxID, depInfo.DependentTxID, key)
 		}
 	}
 
-	if !hasDependency {
-		for key := range req.WriteSet {
-			if depInfo, exists := sl.variableMap[key]; exists {
-				hasDependency = true
-				dependentTxID = depInfo.DependentTxID
-				logger.Debugf("Shard %s: Tx %s has write dependency on %s for key %s",
-					sl.shardID, req.TxID, dependentTxID, key)
-				break
+	var writeKeys []string
+	for k := range req.WriteSet {
+		writeKeys = append(writeKeys, k)
+	}
+	sort.Strings(writeKeys)
+
+	for _, key := range writeKeys {
+		if depInfo, exists := sl.variableMap[key]; exists {
+			hasDependency = true
+			if depInfo.DependentTxID != "" {
+				depMap[depInfo.DependentTxID] = true
 			}
+			logger.Debugf("Shard %s: Tx %s has write dependency on %s for key %s",
+				sl.shardID, req.TxID, depInfo.DependentTxID, key)
 		}
 	}
+
+	var depList []string
+	for txID := range depMap {
+		depList = append(depList, txID)
+	}
+	sort.Strings(depList)
+	dependentTxID := strings.Join(depList, ",")
 
 	return hasDependency, dependentTxID
 }
