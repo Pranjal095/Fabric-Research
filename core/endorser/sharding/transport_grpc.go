@@ -177,7 +177,7 @@ func (t *Transport) send(shardID string, msg raftpb.Message) {
 		Data: data,
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 
 	ctx = metadata.AppendToOutgoingContext(ctx, "shard-id", shardID)
