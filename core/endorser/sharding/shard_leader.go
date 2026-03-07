@@ -60,6 +60,7 @@ type PrepareProof struct {
 	Signature     []byte
 	Term          uint64
 	DependentTxID string
+	HasDependency bool
 }
 
 // ShardLeader manages a Raft group for a specific contract
@@ -77,7 +78,8 @@ type ShardLeader struct {
 	maxBatchSize    int
 	lastBatchTime   time.Time
 	proposeC        chan *PrepareRequest
-	subscribers     map[string]chan *PrepareProof
+	subscribers     map[string][]chan *PrepareProof
+	pendingTxIDs    map[string]bool
 	errorC          chan error
 	stopC           chan struct{}
 	messagesC       chan []raftpb.Message
@@ -116,7 +118,8 @@ func NewShardLeader(config ShardConfig, batchTimeout time.Duration, maxBatchSize
 		maxBatchSize:  maxBatchSize,
 		lastBatchTime: time.Now(),
 		proposeC:      make(chan *PrepareRequest, 10000),
-		subscribers:   make(map[string]chan *PrepareProof),
+		subscribers:   make(map[string][]chan *PrepareProof),
+		pendingTxIDs:  make(map[string]bool),
 		errorC:        make(chan error, 10),
 		stopC:         make(chan struct{}),
 		messagesC:     make(chan []raftpb.Message, 10000),
@@ -162,7 +165,10 @@ func (sl *ShardLeader) runRaft() {
 
 		case req := <-sl.proposeC:
 			sl.batchLock.Lock()
-			sl.batchQueue = append(sl.batchQueue, req)
+			if !sl.pendingTxIDs[req.TxID] {
+				sl.batchQueue = append(sl.batchQueue, req)
+				sl.pendingTxIDs[req.TxID] = true
+			}
 			shouldFlush := len(sl.batchQueue) >= sl.maxBatchSize
 			sl.batchLock.Unlock()
 
@@ -214,6 +220,12 @@ func (sl *ShardLeader) flushBatch() {
 	if err := sl.node.Propose(context.TODO(), data); err != nil {
 		logger.Errorf("Failed to propose batch for shard %s: %v", sl.shardID, err)
 	}
+
+	sl.batchLock.Lock()
+	for _, req := range batch {
+		delete(sl.pendingTxIDs, req.TxID)
+	}
+	sl.batchLock.Unlock()
 }
 
 // serializeBatch serializes a batch of prepare requests
@@ -266,28 +278,31 @@ func (sl *ShardLeader) applyEntry(entry raftpb.Entry) {
 			Term:          entry.Term,
 			Signature:     sl.signProof(reqProto.TxID, sl.commitIndex),
 			DependentTxID: dependentTxID,
+			HasDependency: hasDependency,
 		}
 
 		sl.updateDependencyMap(reqProto, hasDependency, dependentTxID, entry.Index)
 
 		sl.mu.RLock()
-		ch, exists := sl.subscribers[reqProto.TxID]
+		subs, exists := sl.subscribers[reqProto.TxID]
 		sl.mu.RUnlock()
 
 		if exists {
-			func() {
-				defer func() {
-					if r := recover(); r != nil {
-						logger.Warnf("Shard %s: recovered from send on closed channel for tx %s", sl.shardID, reqProto.TxID)
+			for _, ch := range subs {
+				func(c chan *PrepareProof) {
+					defer func() {
+						if r := recover(); r != nil {
+							logger.Warnf("Shard %s: recovered from send on closed channel for tx %s", sl.shardID, reqProto.TxID)
+						}
+					}()
+					select {
+					case c <- proof:
+						logger.Debugf("Shard %s: Sent proof for tx %s at index %d", sl.shardID, reqProto.TxID, entry.Index)
+					default:
+						logger.Warnf("Commit channel full for tx %s in shard %s", reqProto.TxID, sl.shardID)
 					}
-				}()
-				select {
-				case ch <- proof:
-					logger.Debugf("Shard %s: Sent proof for tx %s at index %d", sl.shardID, reqProto.TxID, entry.Index)
-				default:
-					logger.Warnf("Commit channel full for tx %s in shard %s", reqProto.TxID, sl.shardID)
-				}
-			}()
+				}(ch)
+			}
 		}
 
 		sl.mu.Lock()
@@ -396,20 +411,33 @@ func (sl *ShardLeader) ProposeC() chan<- *PrepareRequest {
 	return sl.proposeC
 }
 
-// Subscribe provides a one-time channel for a specific transaction's proof
+// Subscribe provides a one-time channel for a specific transaction's proof.
+// Supports multiple concurrent subscribers (e.g. multi-peer endorsement).
 func (sl *ShardLeader) Subscribe(txID string) <-chan *PrepareProof {
 	sl.mu.Lock()
 	defer sl.mu.Unlock()
 	ch := make(chan *PrepareProof, 1)
-	sl.subscribers[txID] = ch
+	sl.subscribers[txID] = append(sl.subscribers[txID], ch)
 	return ch
 }
 
-// Unsubscribe removes a subscription, usually called on context timeout
-func (sl *ShardLeader) Unsubscribe(txID string) {
+// Unsubscribe removes a specific subscription channel.
+func (sl *ShardLeader) Unsubscribe(txID string, ch <-chan *PrepareProof) {
 	sl.mu.Lock()
 	defer sl.mu.Unlock()
-	delete(sl.subscribers, txID)
+	subs, exists := sl.subscribers[txID]
+	if !exists {
+		return
+	}
+	for i, sub := range subs {
+		if sub == ch {
+			sl.subscribers[txID] = append(subs[:i], subs[i+1:]...)
+			break
+		}
+	}
+	if len(sl.subscribers[txID]) == 0 {
+		delete(sl.subscribers, txID)
+	}
 }
 
 // GetRequestsHandled returns the number of requests handled

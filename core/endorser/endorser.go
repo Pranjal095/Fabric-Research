@@ -451,7 +451,7 @@ func (e *Endorser) ProcessProposalSuccessfullyOrError(up *UnpackedProposal) (*pb
 				}
 
 				commitC := s.Subscribe(up.ChannelHeader.TxId)
-				defer s.Unsubscribe(up.ChannelHeader.TxId)
+				defer s.Unsubscribe(up.ChannelHeader.TxId, commitC)
 
 				select {
 				case proof := <-commitC:
@@ -463,16 +463,13 @@ func (e *Endorser) ProcessProposalSuccessfullyOrError(up *UnpackedProposal) (*pb
 					}
 
 					mu.Lock()
-					if proof.CommitIndex > 1 {
+					if proof.HasDependency {
 						hasDependency = true
-					}
-					if proof.CommitIndex > maxCommitIndex {
-						maxCommitIndex = proof.CommitIndex
 					}
 					if proof.DependentTxID != "" {
 						if dependentTxID == "" {
 							dependentTxID = proof.DependentTxID
-						} else if !strings.Contains(dependentTxID, proof.DependentTxID) {
+						} else {
 							dependentTxID = dependentTxID + "," + proof.DependentTxID
 						}
 					}
@@ -515,7 +512,17 @@ func (e *Endorser) ProcessProposalSuccessfullyOrError(up *UnpackedProposal) (*pb
 	// because goroutines complete in random order during proof collection.
 	var sortedDeps string
 	if dependentTxID != "" {
-		depList := strings.Split(dependentTxID, ",")
+		depMap := make(map[string]bool)
+		for _, dep := range strings.Split(dependentTxID, ",") {
+			if dep != "" {
+				depMap[dep] = true
+			}
+		}
+
+		var depList []string
+		for txID := range depMap {
+			depList = append(depList, txID)
+		}
 		sort.Strings(depList)
 		sortedDeps = strings.Join(depList, ",")
 	}
