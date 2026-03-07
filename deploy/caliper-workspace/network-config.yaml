@@ -8,17 +8,15 @@ caliper:
     useGateway: true
     gateway:
       eventStrategy: msp_any
-    discovery:
-      enabled: false
-      asLocalhost: false
-    connectionOptions:
       discovery:
-        timeout: 100000
-      query:
-        timeout: 100000
-      eventHandlerOptions:
-        commitTimeout: 300
-        endorseTimeout: 300
+        enabled: false
+        asLocalhost: false
+      options:
+        eventHandlerOptions:
+          endorseTimeout: 300
+          commitTimeout: 300
+        queryHandlerOptions:
+          timeout: 300
 
 channels:
   - channelName: mychannel
