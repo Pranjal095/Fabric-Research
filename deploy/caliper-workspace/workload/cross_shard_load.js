@@ -50,9 +50,16 @@ class CrossShardLoad extends WorkloadModuleBase {
         // Determine key: dependent transactions use shared hot keys (creating conflicts),
         // independent transactions use unique keys (no conflicts)
         let key;
-        if (Math.random() < this.dependency) {
+        // DETERMINISTIC: Dependency Ratio = Number of Edges
+        // To get X edges, we need X + hotKeys transactions (first tx for each key is a root with 0 edges)
+        const totalTxsInWindow = 100;
+        const targetEdges = this.dependency * totalTxsInWindow;
+        const neededHotTxs = targetEdges + this.hotKeys;
+
+        if ((this.txIndex % totalTxsInWindow) < neededHotTxs) {
             // DEPENDENT: pick from shared hot key pool — creates read-write conflicts
-            const hotKeyIndex = Math.floor(Math.random() * this.hotKeys);
+            // Use modulo for key selection to ensure perfectly even distribution across hotKeys
+            const hotKeyIndex = this.txIndex % this.hotKeys;
             key = `hot_${hotKeyIndex}`;
         } else {
             // INDEPENDENT: unique key — no conflicts possible

@@ -7,7 +7,7 @@ test:
   rounds:
     - label: "EXP2 - Dep 0%"
       description: "0% dependency"
-      txNumber: 1000
+      txNumber: 2000
       rateControl:
         type: fixed-load
         opts:
@@ -17,11 +17,11 @@ test:
         arguments:
           pcross: 0.10
           dependency: 0.00
-          hotKeys: 10
+          hotKeys: 5
 
     - label: "EXP2 - Dep 10%"
       description: "10% dependency"
-      txNumber: 1000
+      txNumber: 2000
       rateControl:
         type: fixed-load
         opts:
@@ -31,11 +31,11 @@ test:
         arguments:
           pcross: 0.10
           dependency: 0.10
-          hotKeys: 10
+          hotKeys: 5
 
     - label: "EXP2 - Dep 20%"
       description: "20% dependency"
-      txNumber: 1000
+      txNumber: 2000
       rateControl:
         type: fixed-load
         opts:
@@ -45,11 +45,11 @@ test:
         arguments:
           pcross: 0.10
           dependency: 0.20
-          hotKeys: 10
+          hotKeys: 5
 
     - label: "EXP2 - Dep 30%"
       description: "30% dependency"
-      txNumber: 1000
+      txNumber: 2000
       rateControl:
         type: fixed-load
         opts:
@@ -59,11 +59,11 @@ test:
         arguments:
           pcross: 0.10
           dependency: 0.30
-          hotKeys: 10
+          hotKeys: 5
 
     - label: "EXP2 - Dep 40%"
       description: "40% dependency"
-      txNumber: 1000
+      txNumber: 2000
       rateControl:
         type: fixed-load
         opts:
@@ -73,11 +73,11 @@ test:
         arguments:
           pcross: 0.10
           dependency: 0.40
-          hotKeys: 10
+          hotKeys: 5
 
     - label: "EXP2 - Dep 50%"
       description: "50% dependency"
-      txNumber: 1000
+      txNumber: 2000
       rateControl:
         type: fixed-load
         opts:
@@ -87,7 +87,7 @@ test:
         arguments:
           pcross: 0.10
           dependency: 0.50
-          hotKeys: 10
+          hotKeys: 5
 
 observer:
   type: local
