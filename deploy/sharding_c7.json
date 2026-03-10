@@ -1,0 +1,65 @@
+{
+    "fabcar": [
+        "peer0.org1.example.com:7051",
+        "peer1.org1.example.com:8051",
+        "peer2.org1.example.com:9051",
+        "peer3.org1.example.com:7051",
+        "peer4.org1.example.com:8051",
+        "peer5.org1.example.com:9051",
+        "peer6.org1.example.com:10051"
+    ],
+    "marbles": [
+        "peer0.org1.example.com:7051",
+        "peer1.org1.example.com:8051",
+        "peer2.org1.example.com:9051",
+        "peer3.org1.example.com:7051",
+        "peer4.org1.example.com:8051",
+        "peer5.org1.example.com:9051",
+        "peer6.org1.example.com:10051"
+    ],
+    "smallbank": [
+        "peer0.org1.example.com:7051",
+        "peer1.org1.example.com:8051",
+        "peer2.org1.example.com:9051",
+        "peer3.org1.example.com:7051",
+        "peer4.org1.example.com:8051",
+        "peer5.org1.example.com:9051",
+        "peer6.org1.example.com:10051"
+    ],
+    "asset-transfer-basic": [
+        "peer0.org1.example.com:7051",
+        "peer1.org1.example.com:8051",
+        "peer2.org1.example.com:9051",
+        "peer3.org1.example.com:7051",
+        "peer4.org1.example.com:8051",
+        "peer5.org1.example.com:9051",
+        "peer6.org1.example.com:10051"
+    ],
+    "token-erc20": [
+        "peer0.org1.example.com:7051",
+        "peer1.org1.example.com:8051",
+        "peer2.org1.example.com:9051",
+        "peer3.org1.example.com:7051",
+        "peer4.org1.example.com:8051",
+        "peer5.org1.example.com:9051",
+        "peer6.org1.example.com:10051"
+    ],
+    "commercial-paper": [
+        "peer0.org1.example.com:7051",
+        "peer1.org1.example.com:8051",
+        "peer2.org1.example.com:9051",
+        "peer3.org1.example.com:7051",
+        "peer4.org1.example.com:8051",
+        "peer5.org1.example.com:9051",
+        "peer6.org1.example.com:10051"
+    ],
+    "auction": [
+        "peer0.org1.example.com:7051",
+        "peer1.org1.example.com:8051",
+        "peer2.org1.example.com:9051",
+        "peer3.org1.example.com:7051",
+        "peer4.org1.example.com:8051",
+        "peer5.org1.example.com:9051",
+        "peer6.org1.example.com:10051"
+    ]
+}

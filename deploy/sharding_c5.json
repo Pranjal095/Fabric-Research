@@ -1,0 +1,51 @@
+{
+    "fabcar": [
+        "peer0.org1.example.com:7051",
+        "peer1.org1.example.com:8051",
+        "peer2.org1.example.com:9051",
+        "peer3.org1.example.com:7051",
+        "peer4.org1.example.com:8051"
+    ],
+    "marbles": [
+        "peer1.org1.example.com:8051",
+        "peer2.org1.example.com:9051",
+        "peer3.org1.example.com:7051",
+        "peer4.org1.example.com:8051",
+        "peer5.org1.example.com:9051"
+    ],
+    "smallbank": [
+        "peer2.org1.example.com:9051",
+        "peer3.org1.example.com:7051",
+        "peer4.org1.example.com:8051",
+        "peer5.org1.example.com:9051",
+        "peer6.org1.example.com:10051"
+    ],
+    "asset-transfer-basic": [
+        "peer3.org1.example.com:7051",
+        "peer4.org1.example.com:8051",
+        "peer5.org1.example.com:9051",
+        "peer6.org1.example.com:10051",
+        "peer0.org1.example.com:7051"
+    ],
+    "token-erc20": [
+        "peer4.org1.example.com:8051",
+        "peer5.org1.example.com:9051",
+        "peer6.org1.example.com:10051",
+        "peer0.org1.example.com:7051",
+        "peer1.org1.example.com:8051"
+    ],
+    "commercial-paper": [
+        "peer5.org1.example.com:9051",
+        "peer6.org1.example.com:10051",
+        "peer0.org1.example.com:7051",
+        "peer1.org1.example.com:8051",
+        "peer2.org1.example.com:9051"
+    ],
+    "auction": [
+        "peer6.org1.example.com:10051",
+        "peer0.org1.example.com:7051",
+        "peer1.org1.example.com:8051",
+        "peer2.org1.example.com:9051",
+        "peer3.org1.example.com:7051"
+    ]
+}

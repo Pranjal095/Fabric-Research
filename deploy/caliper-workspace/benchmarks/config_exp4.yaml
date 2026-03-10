@@ -1,23 +1,23 @@
 test:
-  name: "EXP4 - Throughput vs Cluster Size"
-  description: "Fixed txNumber=1000, Dependency=40%, pcross=0.10, Threads=32. Run once per cluster size."
+  name: "EXP4 - Throughput and Latency vs Cluster Size"
+  description: "Fixed at 2000 txns, Dependency=40%, pcross=0.10, hotKeys=5, Threads=16. Run this file once per sharding configuration (c1, c3, c5, c7)."
   workers:
     type: local
-    number: 32
+    number: 16
   rounds:
-    - label: "EXP4 - Cluster benchmark"
-      description: "1000 transactions, 40% dependency"
-      txNumber: 1000
+    - label: "EXP4 - 2000 txns"
+      description: "2000 transactions, 40% dependency"
+      txNumber: 2000
       rateControl:
         type: fixed-load
         opts:
-          transactionLoad: 100
+          transactionLoad: 500
       workload:
         module: workload/cross_shard_load.js
         arguments:
           pcross: 0.10
           dependency: 0.40
-          hotKeys: 10
+          hotKeys: 5
 
 observer:
   type: local
