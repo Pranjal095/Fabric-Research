@@ -302,9 +302,18 @@ func (sl *ShardLeader) applyEntry(entry raftpb.Entry) {
 
 		sl.updateDependencyMap(reqProto, hasDependency, dependentTxID, entry.Index)
 
-		sl.mu.RLock()
+		// 1. Cache the proof first for immediate resolution of late subscribers
+		sl.proofCacheLock.Lock()
+		sl.proofCache[reqProto.TxID] = proof
+		sl.proofCacheLock.Unlock()
+
+		// 2. Extract and delete subscribers atomically
+		sl.mu.Lock()
 		subs, exists := sl.subscribers[reqProto.TxID]
-		sl.mu.RUnlock()
+		if exists {
+			delete(sl.subscribers, reqProto.TxID)
+		}
+		sl.mu.Unlock()
 
 		if exists {
 			for _, ch := range subs {
@@ -324,18 +333,10 @@ func (sl *ShardLeader) applyEntry(entry raftpb.Entry) {
 			}
 		}
 
-		sl.mu.Lock()
-		delete(sl.subscribers, reqProto.TxID)
-		sl.mu.Unlock()
-
+		// 3. Cleanup pending ID map
 		sl.batchLock.Lock()
 		delete(sl.pendingTxIDs, reqProto.TxID)
 		sl.batchLock.Unlock()
-
-		// Cache the proof for future redundant requests (ensures bit-for-bit identical responses)
-		sl.proofCacheLock.Lock()
-		sl.proofCache[reqProto.TxID] = proof
-		sl.proofCacheLock.Unlock()
 
 		sl.mu.Lock()
 		sl.requestsHandled++
@@ -468,7 +469,12 @@ func (sl *ShardLeader) HasProof(txID string) bool {
 // Subscribe provides a one-time channel for a specific transaction's proof.
 // Supports multiple concurrent subscribers (e.g. multi-peer endorsement).
 func (sl *ShardLeader) Subscribe(txID string) <-chan *PrepareProof {
-	// First check cache for immediate response (prevents deduplication timeouts)
+	sl.mu.Lock()
+	defer sl.mu.Unlock()
+
+	// Check cache while holding mu lock. Because applyEntry populates cache
+	// BEFORE acquiring mu lock and deleting subscribers, this absolutely guarantees
+	// we will never miss a notification or wait forever.
 	sl.proofCacheLock.RLock()
 	if proof, exists := sl.proofCache[txID]; exists {
 		sl.proofCacheLock.RUnlock()
@@ -478,8 +484,6 @@ func (sl *ShardLeader) Subscribe(txID string) <-chan *PrepareProof {
 	}
 	sl.proofCacheLock.RUnlock()
 
-	sl.mu.Lock()
-	defer sl.mu.Unlock()
 	ch := make(chan *PrepareProof, 1)
 	sl.subscribers[txID] = append(sl.subscribers[txID], ch)
 	return ch
