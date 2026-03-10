@@ -8,10 +8,14 @@ package sharding
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"sync"
 )
+
+// ErrNotAReplica is returned when a peer is asked to manage a shard it doesn't replicate
+var ErrNotAReplica = errors.New("peer is not configured as a replica for this shard")
 
 // Global Transport instance across all ShardManagers in the Peer
 var (
@@ -133,6 +137,7 @@ func (sm *ShardManager) GetOrCreateShard(contractName string) (*ShardLeader, err
 	}
 
 	// Try to load from configuration file
+	isReplica := false
 	if externalConfig, err := loadShardingConfig("sharding.json"); err == nil {
 		if replicas, ok := externalConfig[contractName]; ok {
 			config.ReplicaNodes = replicas
@@ -141,8 +146,14 @@ func (sm *ShardManager) GetOrCreateShard(contractName string) (*ShardLeader, err
 			for i, nodeAddr := range replicas {
 				if nodeAddr == myAddr {
 					config.ReplicaID = uint64(i + 1)
+					isReplica = true
 					break
 				}
+			}
+
+			// EXP4 Fix: If the shard exists in config but this peer isn't in it, hard fail.
+			if !isReplica {
+				return nil, ErrNotAReplica
 			}
 		}
 	}

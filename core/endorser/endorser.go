@@ -396,6 +396,13 @@ func (e *Endorser) ProcessProposalSuccessfullyOrError(up *UnpackedProposal) (*pb
 
 			shard, err := e.ShardManager.GetOrCreateShard(shardName)
 			if err != nil {
+				// EXP4 Fix: Fast fail if this peer is not a legitimate replica for the requested shard
+				if err == sharding.ErrNotAReplica {
+					logger.Infof("Rejecting proposal for %s: This peer is not a replica for shard %s", up.ChannelHeader.TxId, shardName)
+					res.Status = shim.ERROR
+					res.Message = fmt.Sprintf("peer is not a replica for shard %s", shardName)
+					return &pb.ProposalResponse{Response: res}, nil
+				}
 				shardErrors = append(shardErrors, errors.WithMessagef(err, "failed to get shard %s", shardName))
 				continue
 			}

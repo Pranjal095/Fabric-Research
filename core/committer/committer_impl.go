@@ -412,7 +412,19 @@ func (lc *LedgerCommitter) SetConcurrencyLimit(limit int) {
 // NewLedgerCommitter is a factory function to create an instance of the committer
 // which passes incoming blocks via validation and commits them into the ledger.
 func NewLedgerCommitter(ledger PeerLedgerSupport) *LedgerCommitter {
-	return &LedgerCommitter{PeerLedgerSupport: ledger}
+	lc := &LedgerCommitter{PeerLedgerSupport: ledger, ConcurrencyLimit: 0}
+
+	// Experiment 3: Read FABRIC_DAG_CONCURRENCY to artificially restrict DAG parallelization threads
+	if envVal := os.Getenv("FABRIC_DAG_CONCURRENCY"); envVal != "" {
+		if limit, err := strconv.Atoi(envVal); err == nil && limit > 0 {
+			lc.ConcurrencyLimit = limit
+			logger.Infof("DAG concurrency artificially hardcapped to %d threads via FABRIC_DAG_CONCURRENCY", limit)
+		} else {
+			logger.Warningf("Failed to parse FABRIC_DAG_CONCURRENCY='%s', defaulting to unbounded parallelization", envVal)
+		}
+	}
+
+	return lc
 }
 
 // CommitLegacy commits blocks atomically with private data
