@@ -3,7 +3,7 @@ test:
   description: "Varying txNumber 1000-5000, Dependency=40%, pcross=0.10, hotKeys=10, Threads=32"
   workers:
     type: local
-    number: 32
+    number: 16
   rounds:
     - label: "EXP1 - 1000 txns"
       description: "1000 transactions"
