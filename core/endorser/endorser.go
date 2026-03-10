@@ -394,15 +394,53 @@ func (e *Endorser) ProcessProposalSuccessfullyOrError(up *UnpackedProposal) (*pb
 				return nil, errors.New("Endorser ShardManager is not initialized")
 			}
 
+			// EXP4 Fix: If the peer is not a replica, use the HTTP Remote Client to ask the actual replica
+			if !e.ShardManager.IsReplica(shardName) {
+				wg.Add(1)
+				go func(sName string, wSet map[string][]byte) {
+					defer wg.Done()
+					prepareReq := &sharding.PrepareRequest{
+						TxID:      up.ChannelHeader.TxId,
+						ShardID:   sName,
+						ReadSet:   make(map[string][]byte),
+						WriteSet:  wSet,
+						Timestamp: time.Now(),
+					}
+
+					logger.Debugf("Requesting remote proof for tx %s from shard %s", prepareReq.TxID, sName)
+					proof, err := e.ShardManager.RequestRemoteProof(sName, prepareReq)
+					if err != nil {
+						mu.Lock()
+						shardErrors = append(shardErrors, fmt.Errorf("remote proof failed for shard %s: %v", sName, err))
+						mu.Unlock()
+						return
+					}
+
+					if !e.verifyProof(proof) {
+						mu.Lock()
+						shardErrors = append(shardErrors, fmt.Errorf("invalid remote proof from shard %s", sName))
+						mu.Unlock()
+						return
+					}
+
+					mu.Lock()
+					if proof.HasDependency {
+						hasDependency = true
+					}
+					if proof.DependentTxID != "" {
+						if dependentTxID == "" {
+							dependentTxID = proof.DependentTxID
+						} else {
+							dependentTxID = dependentTxID + "," + proof.DependentTxID
+						}
+					}
+					mu.Unlock()
+				}(shardName, writeSet)
+				continue
+			}
+
 			shard, err := e.ShardManager.GetOrCreateShard(shardName)
 			if err != nil {
-				// EXP4 Fix: Fast fail if this peer is not a legitimate replica for the requested shard
-				if err == sharding.ErrNotAReplica {
-					logger.Infof("Rejecting proposal for %s: This peer is not a replica for shard %s", up.ChannelHeader.TxId, shardName)
-					res.Status = shim.ERROR
-					res.Message = fmt.Sprintf("peer is not a replica for shard %s", shardName)
-					return &pb.ProposalResponse{Response: res}, nil
-				}
 				shardErrors = append(shardErrors, errors.WithMessagef(err, "failed to get shard %s", shardName))
 				continue
 			}
