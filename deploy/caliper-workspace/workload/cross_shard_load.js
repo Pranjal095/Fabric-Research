@@ -56,7 +56,8 @@ class CrossShardLoad extends WorkloadModuleBase {
         const targetEdges = this.dependency * totalTxsInWindow;
         const neededHotTxs = targetEdges + this.hotKeys;
 
-        if ((this.txIndex % totalTxsInWindow) < neededHotTxs) {
+        // Distribute hot transactions evenly across the window instead of grouping them contiguously at the start
+        if (((this.txIndex % totalTxsInWindow) * neededHotTxs) % totalTxsInWindow < neededHotTxs) {
             // DEPENDENT: pick from shared hot key pool — creates read-write conflicts
             // Use modulo for key selection to ensure perfectly even distribution across hotKeys
             const hotKeyIndex = this.txIndex % this.hotKeys;
