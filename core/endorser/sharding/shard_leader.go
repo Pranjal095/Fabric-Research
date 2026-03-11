@@ -39,6 +39,7 @@ type TransactionDependencyInfo struct {
 type ShardConfig struct {
 	ShardID      string
 	ReplicaNodes []string
+	ReplicaIDs   []uint64
 	ReplicaID    uint64
 }
 
@@ -103,8 +104,8 @@ func NewShardLeader(config ShardConfig, batchTimeout time.Duration, maxBatchSize
 	}
 
 	var peers []raft.Peer
-	for i := range config.ReplicaNodes {
-		peers = append(peers, raft.Peer{ID: uint64(i + 1)})
+	for _, id := range config.ReplicaIDs {
+		peers = append(peers, raft.Peer{ID: id})
 	}
 
 	node := raft.StartNode(c, peers)

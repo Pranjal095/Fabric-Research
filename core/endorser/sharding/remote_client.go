@@ -16,12 +16,12 @@ var globalHTTPStarted bool
 // StartHTTPServer starts a REST API for remote shard proposal coordination.
 // It offsets the default peer port by 30000 (e.g., 7051 -> 37051).
 func (sm *ShardManager) StartHTTPServer(myAddr string) {
-	host, portStr, err := net.SplitHostPort(myAddr)
+	// Extract the port and force bind to 0.0.0.0 to ensure Docker can route to it route to it
+	_, portStr, err := net.SplitHostPort(myAddr)
 	if err != nil {
 		logger.Errorf("Failed to split host/port for HTTP Server: %v", err)
 		return
 	}
-	_ = host // unused locally for binding
 	var port int
 	fmt.Sscanf(portStr, "%d", &port)
 	bindAddr := fmt.Sprintf("0.0.0.0:%d", port+30000)

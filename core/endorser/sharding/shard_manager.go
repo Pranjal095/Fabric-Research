@@ -8,8 +8,8 @@ package sharding
 
 import (
 	"encoding/json"
-	"fmt"
 	"os"
+	"sort"
 	"sync"
 )
 
@@ -48,44 +48,8 @@ func NewShardManager(configs map[string]ShardConfig, metrics Metrics) *ShardMana
 		myAddr = "localhost:7051"
 	}
 
-	// 2. Discover the global replica node list from any shard in sharding.json
-	// Since all shards share the same nodes in this architecture
-	var globalReplicas []string
-	if externalConfig, err := loadShardingConfig("sharding.json"); err == nil {
-		for _, replicas := range externalConfig {
-			globalReplicas = replicas
-			break
-		}
-	} else {
-		globalReplicas = []string{"localhost:7051", "localhost:7052", "localhost:7053"}
-	}
-
-	// 3. Determine Local Replica ID by matching full address (host:port)
-	var replicaID uint64 = 1
-	for i, nodeAddr := range globalReplicas {
-		if nodeAddr == myAddr {
-			replicaID = uint64(i + 1)
-			break
-		}
-	}
-
-	// 4. Create Peer map
-	peers := make(PeerConfig)
-	for i, addr := range globalReplicas {
-		peers[uint64(i+1)] = addr
-	}
-
-	// 5. Initialize the Multiplexed Transport globally (if it doesn't exist)
-	globalTransportLock.Lock()
-	if globalTransport == nil {
-		transport := NewTransport(replicaID, myAddr, peers)
-		if err := transport.Start(); err != nil {
-			logger.Errorf("Failed to start global shard transport: %v", err)
-		} else {
-			globalTransport = transport
-			logger.Infof("Started global process-level gRPC transport for ShardManager at %s (ReplicaID: %d)", myAddr, replicaID)
-		}
-	}
+	// 2. Discover the global replica node list and Initialize Transport
+	sm.initGlobalTransportOnce(myAddr)
 	if !globalHTTPStarted {
 		sm.StartHTTPServer(myAddr)
 		globalHTTPStarted = true
@@ -128,6 +92,7 @@ func (sm *ShardManager) GetOrCreateShard(contractName string) (*ShardLeader, err
 	config := ShardConfig{
 		ShardID:      contractName,
 		ReplicaNodes: []string{"localhost:7051", "localhost:7052", "localhost:7053"},
+		ReplicaIDs:   []uint64{1, 2, 3},
 		ReplicaID:    1,
 	}
 
@@ -142,12 +107,33 @@ func (sm *ShardManager) GetOrCreateShard(contractName string) (*ShardLeader, err
 			config.ReplicaNodes = replicas
 			logger.Infof("Loaded configuration for shard %s: %v", contractName, replicas)
 
-			for i, nodeAddr := range replicas {
-				if nodeAddr == myAddr {
-					config.ReplicaID = uint64(i + 1)
-					break
+			// Compute global deterministic mapping
+			var globalReplicas []string
+			replicaSet := make(map[string]bool)
+			for _, repls := range externalConfig {
+				for _, r := range repls {
+					if !replicaSet[r] {
+						replicaSet[r] = true
+						globalReplicas = append(globalReplicas, r)
+					}
 				}
 			}
+			sort.Strings(globalReplicas)
+
+			// Resolve local replicas directly to global ID map indices
+			var globalIDs []uint64
+			for _, nodeAddr := range replicas {
+				for i, gAddr := range globalReplicas {
+					if nodeAddr == gAddr {
+						globalIDs = append(globalIDs, uint64(i+1))
+						if nodeAddr == myAddr {
+							config.ReplicaID = uint64(i + 1)
+						}
+						break
+					}
+				}
+			}
+			config.ReplicaIDs = globalIDs
 		}
 	}
 
@@ -156,25 +142,7 @@ func (sm *ShardManager) GetOrCreateShard(contractName string) (*ShardLeader, err
 		return nil, err
 	}
 
-	if globalTransport == nil {
-		globalTransportLock.Lock()
-		if globalTransport == nil {
-			peers := make(PeerConfig)
-			for i, addr := range config.ReplicaNodes {
-				peers[uint64(i+1)] = addr
-			}
-
-			transport := NewTransport(config.ReplicaID, myAddr, peers)
-			if err := transport.Start(); err != nil {
-				globalTransportLock.Unlock()
-				shard.Stop()
-				return nil, fmt.Errorf("failed to start transport for shard %s: %v", contractName, err)
-			}
-			globalTransport = transport
-			logger.Infof("Started lazy global process-level gRPC transport securely at %s", myAddr)
-		}
-		globalTransportLock.Unlock()
-	}
+	sm.initGlobalTransportOnce(myAddr)
 
 	globalTransport.RegisterShard(contractName, shard)
 
@@ -197,6 +165,52 @@ func loadShardingConfig(path string) (map[string][]string, error) {
 		return nil, err
 	}
 	return config, nil
+}
+
+func (sm *ShardManager) initGlobalTransportOnce(myAddr string) {
+	globalTransportLock.Lock()
+	defer globalTransportLock.Unlock()
+
+	if globalTransport != nil {
+		return
+	}
+
+	var globalReplicas []string
+	if externalConfig, err := loadShardingConfig("sharding.json"); err == nil {
+		replicaSet := make(map[string]bool)
+		for _, replicas := range externalConfig {
+			for _, r := range replicas {
+				if !replicaSet[r] {
+					replicaSet[r] = true
+					globalReplicas = append(globalReplicas, r)
+				}
+			}
+		}
+		sort.Strings(globalReplicas)
+	} else {
+		globalReplicas = []string{"localhost:7051", "localhost:7052", "localhost:7053"}
+	}
+
+	var replicaID uint64 = 1
+	for i, nodeAddr := range globalReplicas {
+		if nodeAddr == myAddr {
+			replicaID = uint64(i + 1)
+			break
+		}
+	}
+
+	peers := make(PeerConfig)
+	for i, addr := range globalReplicas {
+		peers[uint64(i+1)] = addr
+	}
+
+	transport := NewTransport(replicaID, myAddr, peers)
+	if err := transport.Start(); err != nil {
+		logger.Errorf("Failed to start global shard transport: %v", err)
+	} else {
+		globalTransport = transport
+		logger.Infof("Started global process-level gRPC transport for ShardManager at %s (ReplicaID: %d)", myAddr, replicaID)
+	}
 }
 
 // Shutdown stops all shards
