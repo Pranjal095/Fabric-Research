@@ -11,16 +11,16 @@ if [ -z "$1" ]; then
 fi
 
 if [ "$1" == "docker" ]; then
-    echo "Extracting block sizes directly from docker orderer.example.com..."
-    LOGS=$(docker logs orderer.example.com 2>&1 | grep "PHYSICAL SIZE =")
+    echo -e "Extracting block sizes directly from docker orderer.example.com...\n"
+    LOGS=$(docker logs orderer.example.com 2>&1 | grep "PHYSICAL SIZE =" | awk -F "PHYSICAL SIZE = " '{print $2}' | awk '{print $1}')
 else
     LOG_FILE=$1
     if [ ! -f "$LOG_FILE" ]; then
         echo "Error: File $LOG_FILE not found."
         exit 1
     fi
-    echo "Extracting block sizes from $LOG_FILE..."
-    LOGS=$(cat "$LOG_FILE" | grep "PHYSICAL SIZE =")
+    echo -e "Extracting block sizes from $LOG_FILE...\n"
+    LOGS=$(cat "$LOG_FILE" | grep "PHYSICAL SIZE =" | awk -F "PHYSICAL SIZE = " '{print $2}' | awk '{print $1}')
 fi
 
 if [ -z "$LOGS" ]; then
@@ -28,41 +28,94 @@ if [ -z "$LOGS" ]; then
     exit 1
 fi
 
-# We know the user runs 5 rounds: 1000, 2000, 3000, 4000, and 5000 txns
-# Depending on block cutter settings (often 500 txs/block or 2 sec timeout),
-# we can map the sequential blocks into these 5 bins by counting the transactions they represent
-# OR simpler: Since Caliper sends transactions sequentially per round with gaps,
-# we can chunk the logs based on timestamp gaps or simply just report EVERY block 
-# and let the user see the exact progression.
+bytes_array=($LOGS)
 
-# Let's print the actual sequence of blocks and compute a moving average or grouped average.
-# It is safest to just output the raw sizes of all blocks so the user can see how they grew
-# with the transaction volume.
+echo "=================================================="
+echo "          EXPERIMENT ROUND 1 (1000 TXs)"
+echo "--------------------------------------------------"
 
-echo -e "\nBlock Number | Size (Bytes) | Size (KB)"
-echo "----------------------------------------"
+round=1
+target_txs=$((round * 1000))
 
-total_bytes=0
-total_blocks=0
+current_round_bytes=0
+current_round_blocks=0
+current_round_tx_count=0
 
-while IFS= read -r line; do
-    byte_size=$(echo "$line" | grep -o 'PHYSICAL SIZE = [0-9]*' | awk '{print $4}')
-    block_num=$(echo "$line" | grep -o 'Writing block \[[0-9]*\]' | tr -d 'Writing block []')
+setup_blocks=0
+total_payload_bytes=0
+total_payload_blocks=0
+
+for i in "${!bytes_array[@]}"; do
+    byte_size=${bytes_array[$i]}
+    block_num=$((i + 1))
     
-    if [ ! -z "$byte_size" ]; then
-        kb_size=$(echo "scale=2; $byte_size / 1024" | bc)
-        printf "Block %-6s | %-12s | %-8s KB\n" "$block_num" "$byte_size" "$kb_size"
-        total_bytes=$((total_bytes + byte_size))
-        total_blocks=$((total_blocks + 1))
+    # Ignore initial setup/genesis/channel blocks which are < 50KB
+    if [[ $block_num -lt 15 && $byte_size -lt 50000 ]]; then
+        setup_blocks=$((setup_blocks + 1))
+        continue
     fi
-done <<< "$LOGS"
-
-if [ "$total_blocks" -gt 0 ]; then
-    avg_block_bytes=$(echo "scale=2; $total_bytes / $total_blocks" | bc)
-    avg_block_kb=$(echo "scale=2; $avg_block_bytes / 1024" | bc)
     
-    echo "----------------------------------------"
-    echo "Total blocks analyzed: $total_blocks"
-    echo "Average block size: $avg_block_bytes bytes/block (${avg_block_kb} KB/block)"
-    echo "========================================="
+    # Ignore empty or trailing config blocks which are tiny
+    if [[ $byte_size -lt 50000 ]]; then
+        continue
+    fi
+
+    # Based on the data you provided, a 500-tx block is roughly ~510,000 bytes.
+    # Therefore, 1 transaction is approximately ~1020 bytes.
+    est_txs=$((byte_size / 1020))
+    if [ $est_txs -eq 0 ]; then est_txs=1; fi
+    
+    current_round_bytes=$((current_round_bytes + byte_size))
+    current_round_blocks=$((current_round_blocks + 1))
+    current_round_tx_count=$((current_round_tx_count + est_txs))
+    
+    total_payload_bytes=$((total_payload_bytes + byte_size))
+    total_payload_blocks=$((total_payload_blocks + 1))
+    
+    kb_size=$(echo "scale=2; $byte_size / 1024" | bc)
+    printf "Block %-4s | %-8s Bytes | %-8s KB | (est. %s txs)\n" "$block_num" "$byte_size" "$kb_size" "$est_txs"
+    
+    # If the accumulated payload in this group exceeds the workload target (1000, 2000, etc),
+    # then this round's payload cluster has finished!
+    if [[ $current_round_tx_count -ge $target_txs ]]; then
+        avg_round_bytes=$((current_round_bytes / current_round_blocks))
+        avg_round_kb=$(echo "scale=2; $avg_round_bytes / 1024" | bc)
+        
+        echo "--------------------------------------------------"
+        echo ">>> Round $round Snapshot: $current_round_blocks blocks used"
+        echo ">>> Avg Block Size for Round: $avg_round_bytes Bytes ($avg_round_kb KB)"
+        echo "=================================================="
+        
+        if [[ $round -lt 5 ]]; then
+            echo ""
+            round=$((round + 1))
+            target_txs=$((round * 1000))
+            echo "=================================================="
+            echo "          EXPERIMENT ROUND $round ($target_txs TXs)"
+            echo "--------------------------------------------------"
+        fi
+        
+        current_round_tx_count=0
+        current_round_blocks=0
+        current_round_bytes=0
+    fi
+done
+
+if [[ $current_round_blocks -gt 0 ]]; then
+     avg_round_bytes=$((current_round_bytes / current_round_blocks))
+     avg_round_kb=$(echo "scale=2; $avg_round_bytes / 1024" | bc)
+     echo "--------------------------------------------------"
+     echo ">>> Trailing Blocks Snapshot: $current_round_blocks blocks used"
+     echo ">>> Avg Block Size: $avg_round_bytes Bytes ($avg_round_kb KB)"
+     echo "=================================================="
+fi
+
+if [[ $total_payload_blocks -gt 0 ]]; then
+    echo ""
+    avg_total_bytes=$((total_payload_bytes / total_payload_blocks))
+    avg_total_kb=$(echo "scale=2; $avg_total_bytes / 1024" | bc)
+    echo "Total Setup/Config Blocks Ignored: $setup_blocks"
+    echo "OVERALL Average Block Size (All Rounds): $avg_total_bytes Bytes ($avg_total_kb KB)"
+else
+    echo "No valid blocks analyzed."
 fi
