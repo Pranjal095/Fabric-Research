@@ -1,66 +1,10 @@
 test:
   name: "Tracking Block Size vs Number of Transactions"
-  description: "Varying txNumber 1000-5000, Dependency=1.0, pcross=0.10, hotKeys=10, Threads=32"
+  description: "txNumber=5000, Dependency=1.0, pcross=0.10, hotKeys=10, Threads=32"
   workers:
     type: local
     number: 16
   rounds:
-    - label: "EXP - 1000 txns"
-      description: "1000 transactions"
-      txNumber: 1000
-      rateControl:
-        type: fixed-load
-        opts:
-          transactionLoad: 500
-      workload:
-        module: workload/cross_shard_load.js
-        arguments:
-          pcross: 0.10
-          dependency: 1.0
-          hotKeys: 10
-
-    - label: "EXP - 2000 txns"
-      description: "2000 transactions"
-      txNumber: 2000
-      rateControl:
-        type: fixed-load
-        opts:
-          transactionLoad: 500
-      workload:
-        module: workload/cross_shard_load.js
-        arguments:
-          pcross: 0.10
-          dependency: 1.0
-          hotKeys: 10
-
-    - label: "EXP - 3000 txns"
-      description: "3000 transactions"
-      txNumber: 3000
-      rateControl:
-        type: fixed-load
-        opts:
-          transactionLoad: 500
-      workload:
-        module: workload/cross_shard_load.js
-        arguments:
-          pcross: 0.10
-          dependency: 1.0
-          hotKeys: 10
-
-    - label: "EXP - 4000 txns"
-      description: "4000 transactions"
-      txNumber: 4000
-      rateControl:
-        type: fixed-load
-        opts:
-          transactionLoad: 500
-      workload:
-        module: workload/cross_shard_load.js
-        arguments:
-          pcross: 0.10
-          dependency: 1.0
-          hotKeys: 10
-
     - label: "EXP - 5000 txns"
       description: "5000 transactions"
       txNumber: 5000
