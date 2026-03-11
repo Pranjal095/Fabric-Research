@@ -177,7 +177,10 @@ func (t *Transport) send(shardID string, msg raftpb.Message) {
 		Data: data,
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	// Use an aggressive 500ms timeout for internal Raft routing since heartbeat ticks
+	// run every 100ms. If network sockets silently drop packets (like Hairpin NAT connection tracking bugs),
+	// waiting 15s will deadlock the HTTP/2 grpc.ClientConn `MaxConcurrentStreams=100` limits for the peer.
+	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
 	defer cancel()
 
 	ctx = metadata.AppendToOutgoingContext(ctx, "shard-id", shardID)

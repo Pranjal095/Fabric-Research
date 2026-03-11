@@ -121,7 +121,8 @@ def generate_compose(num_peers, server_id, start_peer=0, start_port=7051, couch_
                 "orderer.example.com:192.168.50.54",
                 "peer0.org1.example.com:192.168.50.54",
                 "peer1.org1.example.com:192.168.50.54",
-                "peer2.org1.example.com:192.168.50.54",
+                "peer2.org1.example.com:192.168.50.54"
+            ] if server_id == 2 else [
                 "peer3.org1.example.com:10.96.1.87",
                 "peer4.org1.example.com:10.96.1.87",
                 "peer5.org1.example.com:10.96.1.87",
