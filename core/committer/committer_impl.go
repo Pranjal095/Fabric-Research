@@ -721,7 +721,7 @@ func (lc *LedgerCommitter) processBlockWithDAG(blockAndPvtData *ledger.BlockAndP
 	// applyWriteSet within each level (safe because DAG guarantees no
 	// R/W set overlap at the same level).
 	dagCommitOpts := &ledger.CommitOptions{
-		SkipMVCCValidation: true,
+		SkipMVCCValidation: false,
 		DAGLevels:          dag.GetLevelsByIndex(),
 	}
 	if commitOpts != nil {
