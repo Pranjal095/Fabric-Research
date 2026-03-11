@@ -891,7 +891,14 @@ func (c *Chain) writeBlock(block *common.Block, index uint64) {
 	}
 	c.lastBlock = block
 
-	c.logger.Infof("Writing block [%d] (Raft index: %d) to ledger", block.Header.Number, index)
+	// --- START INJECTED BLOCK SIZE LOG ---
+	blockBytes, err := proto.Marshal(block)
+	if err == nil {
+		c.logger.Infof("Writing block [%d] (Raft index: %d) to ledger. PHYSICAL SIZE = %d bytes", block.Header.Number, index, len(blockBytes))
+	} else {
+		c.logger.Infof("Writing block [%d] (Raft index: %d) to ledger.", block.Header.Number, index)
+	}
+	// --- END INJECTED BLOCK SIZE LOG ---
 
 	if protoutil.IsConfigBlock(block) {
 		c.writeConfigBlock(block, index)
