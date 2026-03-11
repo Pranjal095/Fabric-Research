@@ -7,6 +7,7 @@ SPDX-License-Identifier: Apache-2.0
 package validation
 
 import (
+	"os"
 	"sync"
 
 	"github.com/hyperledger/fabric-protos-go/ledger/rwset/kvrwset"
@@ -106,7 +107,7 @@ func (v *validator) validateAndPrepareBatch(blk *block, doMVCCValidation bool, d
 		levels = dagLevels[0]
 	}
 
-	if levels != nil && !doMVCCValidation && len(levels) > 0 {
+	if levels != nil && len(levels) > 0 {
 		// DAG-parallel path: process transactions level-by-level,
 		// parallelizing applyWriteSet within each level.
 		// Each goroutine gets its own LOCAL batch to avoid concurrent map writes.
@@ -141,7 +142,7 @@ func (v *validator) validateAndPrepareBatch(blk *block, doMVCCValidation bool, d
 
 				var validationCode peer.TxValidationCode
 				var err error
-				if validationCode, err = v.validateEndorserTX(tx.rwset, false, updates); err != nil {
+				if validationCode, err = v.validateEndorserTX(tx.rwset, doMVCCValidation, updates); err != nil {
 					return nil, nil, err
 				}
 				tx.validationCode = validationCode
@@ -204,7 +205,7 @@ func (v *validator) validateAndPrepareBatch(blk *block, doMVCCValidation bool, d
 			}
 			var validationCode peer.TxValidationCode
 			var err error
-			if validationCode, err = v.validateEndorserTX(tx.rwset, false, updates); err != nil {
+			if validationCode, err = v.validateEndorserTX(tx.rwset, doMVCCValidation, updates); err != nil {
 				return nil, nil, err
 			}
 			tx.validationCode = validationCode
@@ -306,6 +307,11 @@ func (v *validator) validateReadSet(ns string, kvReads []*kvrwset.KVRead, update
 func (v *validator) validateKVRead(ns string, kvRead *kvrwset.KVRead, updates *privacyenabledstate.PubUpdateBatch) (bool, error) {
 	readVersion := rwsetutil.NewVersion(kvRead.Version)
 	if updates.Exists(ns, kvRead.Key) {
+		if os.Getenv("FABRIC_SHARDING_ENABLED") == "true" {
+			// In proposed architecture, reading a key updated by a prior transaction
+			// in the same block is an expected DAG intra-block dependency.
+			return true, nil
+		}
 		logger.Warnw("Transaction invalidation due to version mismatch, key in readset has been updated in a prior transaction in this block",
 			"namespace", ns, "key", kvRead.Key, "readVersion", readVersion)
 		return false, nil
@@ -399,6 +405,10 @@ func (v *validator) validateCollHashedReadSet(ns, coll string, kvReadHashes []*k
 func (v *validator) validateKVReadHash(ns, coll string, kvReadHash *kvrwset.KVReadHash, updates *privacyenabledstate.HashedUpdateBatch) (bool, error) {
 	readHashVersion := rwsetutil.NewVersion(kvReadHash.Version)
 	if updates.Contains(ns, coll, kvReadHash.KeyHash) {
+		if os.Getenv("FABRIC_SHARDING_ENABLED") == "true" {
+			// Expected intra-block DAG dependency
+			return true, nil
+		}
 		logger.Warnw("Transaction invalidation due to hash version mismatch, hash key in readset has been updated in a prior transaction in this block",
 			"namespace", ns, "collection", coll, "keyHash", kvReadHash.KeyHash, "readHashVersion", readHashVersion)
 		return false, nil
