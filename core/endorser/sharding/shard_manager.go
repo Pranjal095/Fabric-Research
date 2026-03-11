@@ -50,11 +50,6 @@ func NewShardManager(configs map[string]ShardConfig, metrics Metrics) *ShardMana
 
 	// 2. Discover the global replica node list and Initialize Transport
 	sm.initGlobalTransportOnce(myAddr)
-	if !globalHTTPStarted {
-		sm.StartHTTPServer(myAddr)
-		globalHTTPStarted = true
-	}
-	globalTransportLock.Unlock()
 
 	// 6. Pre-initialize any configured shards
 	for shardID, config := range configs {
@@ -210,6 +205,11 @@ func (sm *ShardManager) initGlobalTransportOnce(myAddr string) {
 	} else {
 		globalTransport = transport
 		logger.Infof("Started global process-level gRPC transport for ShardManager at %s (ReplicaID: %d)", myAddr, replicaID)
+	}
+
+	if !globalHTTPStarted {
+		sm.StartHTTPServer(myAddr)
+		globalHTTPStarted = true
 	}
 }
 
