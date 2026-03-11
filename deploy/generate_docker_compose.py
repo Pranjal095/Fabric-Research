@@ -114,7 +114,8 @@ def generate_compose(num_peers, server_id, start_peer=0, start_port=7051, couch_
             "ports": [
                 f"{peer_port}:{peer_port}",
                 f"{chaincode_port}:{chaincode_port}",
-                f"{peer_port + 20000}:{peer_port + 20000}"
+                f"{peer_port + 20000}:{peer_port + 20000}",
+                f"{peer_port + 30000}:{peer_port + 30000}"
             ],
             "extra_hosts": [
                 "orderer.example.com:192.168.50.54",
